@@ -141,11 +141,11 @@
 本プログラムが内部的に子プロセス等として呼び出す、第三者が配布しているプログラム等を、以下のとおりダウンロードし、`external_tools\external_tools\image_tools\` というサブディレクトリに保存してください。以下のダウンロードする各プログラムは、各配布主体が配布するものであり、私が配布するものではありません。ダウンロードした各ファイルにマルウェア等か含まれないかどうかは、各自アンチウイルスソフトウェア等で慎重に確認してください。
 
 ### 3.2.1. exiftool-13.30_64 ディレクトリ
-[ExifTool](https://exiftool.org/) の Version 13.30 x64 を入れます。このディレクトリの直下に、`exiftool.exe` というファイルが置かれた状態にしてください。このソフトウェアはフリーソフトウェア (GPL ライセンス) なので、インターネット上からダウンロードすることが可能です。以下でも再配布しています。  
+[ExifTool](https://exiftool.org/) の Version 13.30 x64 を入れます。このディレクトリの直下に、`exiftool.exe` というファイルが置かれた状態にしてください。`exiftool_files\` サブディリクトリも、そのまま、`exiftool.exe` と同じディレクトリに (サブディレクトリの形で) コピーしてください。このソフトウェアはフリーソフトウェア (GPL ライセンス) なので、インターネット上からダウンロードすることが可能です。以下でも再配布しています。  
 [https://filecenter.softether-upload.com/d/260118_003_73929/exiftool-13.30_64.zip](https://filecenter.softether-upload.com/d/260118_003_73929/exiftool-13.30_64.zip)
 
 ### 3.2.2. ImageMagick-portable-Q16-HDRI-x64 ディレクトリ
-まず、[ImageMagick](https://imagemagick.org/) の 7.1.x 系の **portable-Q16-HDRI-x64 版** を入れます。このディレクトリの直下に、`magick.exe` や `mogrify.exe` などのファイルが置かれた状態にしてください。このソフトウェアはフリーソフトウェア (ImageMagick ライセンス) で、以下からダウンロードできます。  
+まず、[ImageMagick](https://imagemagick.org/) の 7.1.x 系の **portable-Q16-HDRI-x64 版** を入れます。このディレクトリの直下に、`magick.exe` や `mogrify.exe` などのファイル (他にも 20 個以上のファイルがあります。すべてコピーしてください) が置かれた状態にしてください。このソフトウェアはフリーソフトウェア (ImageMagick ライセンス) で、以下からダウンロードできます。  
 [https://imagemagick.org/archive/binaries/](https://imagemagick.org/archive/binaries/)
   
 本ドキュメント作成時は、`ImageMagick-7.1.2-12-portable-Q16-HDRI-x64.7z` というファイル名で配布されています。しかし、バージョンアップによって、バージョンやファイルが変わるようです。
@@ -160,7 +160,7 @@ pdfcpu の v0.11.0 x64 を入れます。このディレクトリの直下に、
 
 
 ### 3.2.4. qpdf ディレクトリ
-qpdf の v11.9.1 x64 (msvc64) を入れます。このディレクトリの直下に、`bin` というサブディレクトリがあり、その下に、`qpdf.exe` というファイルが置かれた状態にしてください。このソフトウェアはフリーソフトウェア (Apache ライセンス) なので、インターネット上からダウンロードすることが可能です。以下に直リンクを示します。  
+qpdf の v11.9.1 x64 (msvc64) を入れます。このディレクトリの直下に、`bin\` というサブディレクトリがあり (つまり、`qpdf\bin\`) 、その下に、`qpdf.exe` のほか合計 12 個くらいの色々なファイルが置かれた状態にしてください。このソフトウェアはフリーソフトウェア (Apache ライセンス) なので、インターネット上からダウンロードすることが可能です。以下に直リンクを示します。  
 [https://github.com/qpdf/qpdf/releases/download/v11.9.1/qpdf-11.9.1-msvc64.zip](https://github.com/qpdf/qpdf/releases/download/v11.9.1/qpdf-11.9.1-msvc64.zip)
 
 
@@ -183,7 +183,7 @@ OCR エンジンのモデルデータである、[tesseract-ocr / tessdata_best]
    ```
    mkdir <このgitをダウンロードしたディレクトリ>\DN_SuperBook_PDF_Converter\external_tools\external_tools\image_tools\RealEsrgan\RealEsrgan_Repo\
 
-   cd <このgitをダウンロードしたディレクトリ>\DN_SuperBook_PDF_Converter\external_tools\external_tools\image_tools\RealEsrgan\RealEsrgan_Repo\
+   cd /d <このgitをダウンロードしたディレクトリ>\DN_SuperBook_PDF_Converter\external_tools\external_tools\image_tools\RealEsrgan\RealEsrgan_Repo\
 
    %LOCALAPPDATA%\Programs\Python\Python311\python.exe -m venv venv
 
@@ -197,14 +197,14 @@ OCR エンジンのモデルデータである、[tesseract-ocr / tessdata_best]
 
    "C:\Program Files\Git\bin\git.exe" clone https://github.com/xinntao/Real-ESRGAN.git
 
-   cd <このgitをダウンロードしたディレクトリ>\DN_SuperBook_PDF_Converter\external_tools\external_tools\image_tools\RealEsrgan\RealEsrgan_Repo\Real-ESRGAN\
+   cd /d <このgitをダウンロードしたディレクトリ>\DN_SuperBook_PDF_Converter\external_tools\external_tools\image_tools\RealEsrgan\RealEsrgan_Repo\Real-ESRGAN\
 
    "C:\Program Files\Git\bin\git.exe" checkout a4abfb2979a7bbff3f69f58f58ae324608821e27
    ```
 1. [https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth](https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth) を、`<このgitをダウンロードしたディレクトリ>\DN_SuperBook_PDF_Converter\external_tools\external_tools\image_tools\RealEsrgan\RealEsrgan_Repo\Real-ESRGAN\weights\` に、手動でダウンロードして、保存します。
 1. 以下を 1 つずつ実行します。意味をよく理解しながら、実行してください。環境によっては、追加的に補正作業が必要となる可能性があります。
    ```
-   cd <このgitをダウンロードしたディレクトリ>\DN_SuperBook_PDF_Converter\external_tools\external_tools\image_tools\RealEsrgan\RealEsrgan_Repo\
+   cd /d <このgitをダウンロードしたディレクトリ>\DN_SuperBook_PDF_Converter\external_tools\external_tools\image_tools\RealEsrgan\RealEsrgan_Repo\
 
    venv\Scripts\activate
 
@@ -253,6 +253,14 @@ ConvertPdf
 
 ![](doc_img/07.png)
 
+
+なお、ConvertPdf コマンドには、引数を指定することができます。さらに、本プログラムのコマンドラインから ConvertPdf コマンドに引数を指定することも可能です。バッチファイル等から自動的に本プログラムを呼び出す際に便利です。詳しくは、「SuoerBookTools>」プロンプト内で、
+```
+ConvertPdf --help
+```
+を呼び出してみてください。
+
+
 ## 4.4. 動作中の注意
 変換処理は、PDF からの画像生成、AI 画像鮮明化 (RealEsrgan) や内部的ページ番号検出のための OCR 処理に、かなりの時間 (1 冊の書籍あたり十数分 ～ 数十分) を要します。その速度は、CPU や GPU の性能により異なります。
 
@@ -276,7 +284,7 @@ ConvertPdf
 - 本ソフトウェアそのものが第三者のいかなる権利 (いかなるの国の特許権等) をも侵害していないことをユーザーに対して保証するものではありません。本ソフトウェアを事業で利用したり、派生物を配布されたりする場合は、自己責任でお願いいたします。
 
 
-# 6. ChatGPT o3 Pro の利用について
+# 6. 開発にあたっての AI コーディングの利用について
 本ソフトウェアの開発では、一部で、ChatGPT o3 Pro を用いた AI コード生成を利用しています。プロンプトで指示をして AI に C# の関数を書かせるというものです。本ソフトウェアのソースコードには、その結果が含まれます。
 
 
@@ -289,4 +297,9 @@ ConvertPdf
 そして、この README.md に、「派生ソフトウェア」というリンク集を追加するプルリクエストのみを送付いただければ幸いです。
 
 このようにすれば、このページに辿り着いた方は、よりまともな派生ソフトウェアに行き着くことができます。
+
+
+# 8. 最後に
+われわれ日本人は、昔の人々が長年苦労して書き溜めてきた古い価値のある絶版書籍を古書 (Amazon マーケットプレイスで数百円で売られている) でいろいろと購入し、これを個人的にスキャンした上で、本ツールを用いて汚れをデジタル的に除去したクリーンな PDF を生成し、これを PC やタブレットでいつでも快適に読み (古書の匂いやざらつき、読みづらさを、デジタルによって、快適に解決することができる)、全文検索をし、あるいは本ツールの生成結果の PDF を日本語 OCR にかけ (普通のスキャンと比較して、高精度で読み取りが可能になる)、必要に応じて RAG や追加学習を用いてローカル LLM に読ませるなどして、知識として吸収することにより、米国はもちろん、近年力を付けつつある諸外国の人材と同等以上の競争力を、手に入れ、維持することができるのである。
+
 
