@@ -5,11 +5,11 @@ VisualStudioVersion = 18.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SuperBookToolsApp", "SuperBookToolsApp\SuperBookToolsApp.csproj", "{52819088-3F5D-4607-9E86-ECB70A33339F}"
 EndProject
-Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "Cores.Codes", "submodules\IPA-DN-Cores\Cores.NET\Cores.Codes\Cores.Codes.shproj", "{1C674893-7C84-4E7A-834E-6E2370225D99}"
+Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "Cores.Codes", "internal_libs\IPA-DN-Cores\Cores.NET\Cores.Codes\Cores.Codes.shproj", "{1C674893-7C84-4E7A-834E-6E2370225D99}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Cores.Lib.Full", "submodules\IPA-DN-Cores\Cores.NET\Cores.Lib\Cores.Lib.Full.csproj", "{58F7D908-936C-4046-B4B5-95F4B4190188}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Cores.Lib.Full", "internal_libs\IPA-DN-Cores\Cores.NET\Cores.Lib\Cores.Lib.Full.csproj", "{58F7D908-936C-4046-B4B5-95F4B4190188}"
 EndProject
-Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "Cores.Basic", "submodules\IPA-DN-Cores\Cores.NET\Cores.Basic\Cores.Basic.shproj", "{1C674893-7C84-4E7C-834E-6E2370225DA0}"
+Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "Cores.Basic", "internal_libs\IPA-DN-Cores\Cores.NET\Cores.Basic\Cores.Basic.shproj", "{1C674893-7C84-4E7C-834E-6E2370225DA0}"
 EndProject
 Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "SuperBookTools", "SuperBookTools\SuperBookTools.shproj", "{5C796E86-C19C-43B7-8B95-98C50469FBAE}"
 EndProject
@@ -35,10 +35,10 @@ Global
 		SolutionGuid = {4735E3C0-EA07-4987-9AA2-80286C0EB4D4}
 	EndGlobalSection
 	GlobalSection(SharedMSBuildProjectFiles) = preSolution
-		submodules\IPA-DN-Cores\Cores.NET\Cores.Codes\Cores.Codes.projitems*{1c674893-7c84-4e7a-834e-6e2370225d99}*SharedItemsImports = 13
-		submodules\IPA-DN-Cores\Cores.NET\Cores.Basic\Cores.Basic.projitems*{1c674893-7c84-4e7c-834e-6e2370225da0}*SharedItemsImports = 13
+		internal_libs\IPA-DN-Cores\Cores.NET\Cores.Codes\Cores.Codes.projitems*{1c674893-7c84-4e7a-834e-6e2370225d99}*SharedItemsImports = 13
+		internal_libs\IPA-DN-Cores\Cores.NET\Cores.Basic\Cores.Basic.projitems*{1c674893-7c84-4e7c-834e-6e2370225da0}*SharedItemsImports = 13
 		SuperBookTools\SuperBookTools.projitems*{52819088-3f5d-4607-9e86-ecb70a33339f}*SharedItemsImports = 5
-		submodules\IPA-DN-Cores\Cores.NET\Cores.Basic\Cores.Basic.projitems*{58f7d908-936c-4046-b4b5-95f4b4190188}*SharedItemsImports = 5
+		internal_libs\IPA-DN-Cores\Cores.NET\Cores.Basic\Cores.Basic.projitems*{58f7d908-936c-4046-b4b5-95f4b4190188}*SharedItemsImports = 5
 		SuperBookTools\SuperBookTools.projitems*{5c796e86-c19c-43b7-8b95-98c50469fbae}*SharedItemsImports = 13
 	EndGlobalSection
 EndGlobal

@@ -33,6 +33,12 @@ using SixLabors.ImageSharp.Drawing;              // IPathBuilder, RectangleF な
 using SixLabors.ImageSharp.Drawing.Processing;   // ctx.Draw(…) 拡張メソッド
 
 
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
+using UglyToad.PdfPig.Writer;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
+using UglyToad.PdfPig.Tokens;
+
 
 using OpenCvSharp;            // OpenCV 本体
 using OpenCvSharp.Extensions;
@@ -52,7 +58,494 @@ using Newtonsoft.Json.Linq;
 namespace SuperBookTools;
 
 
+[Flags]
+public enum PdfYomitokuFormats
+{
+    Pdf = 0,
+    MD,
+    Html,
+    JSON,
+}
 
+public class PdfYomitokuOptions
+{
+    public PdfYomitokuFormats Format;
+    public int Dpi = 300;
+    public bool LiteMode = false;
+    public bool IgnoreLineBreak = true;
+    public bool Combine = true;
+    public bool IgnoreHeaderFooter = true;
+    public string Device = "cuda";
+    public bool OutputFigures = true;
+    public bool OutputFigureLetters = true;
+    public string Encoding = "utf-8-sig";
+    public int TimeoutSecs = 5 * 3600;
+}
+
+public class PdfYomitokuMiniPageInfo
+{
+    public int? MainBodyPageNo;
+    public int? MainBodyPageTotal;
+    public int? PrefacePageNo;
+    public int? PrefacePageTotal;
+    public int PhysicalPageNo;
+    public int PhysicalPageTotal;
+    public bool? Ok;
+}
+
+// PDF OCR ライブラリ
+public class PdfYomitokuLib
+{
+    readonly string YomiTokuPythonBaseDir;
+
+    public PdfYomitokuLib(string yomiTokuPythonBaseDir)
+    {
+        this.YomiTokuPythonBaseDir = yomiTokuPythonBaseDir;
+    }
+
+    public async Task PerformOcrDirAsync(string srcPdfDirPath, string dstDirPath, string? ignorePathStr = null, CancellationToken cancel = default)
+    {
+        srcPdfDirPath = PP.RemoveLastSeparatorChar(srcPdfDirPath);
+        dstDirPath = PP.RemoveLastSeparatorChar(dstDirPath);
+
+        var srcPdfFiles = (await Lfs.EnumDirectoryAsync(srcPdfDirPath, true, cancel: cancel)).Where(x => x.IsFile && x.Name._IsExtensionMatch(".pdf")).OrderBy(x => x.FullPath, StrCmpi).ToList();
+
+        if (ignorePathStr._IsFilled())
+        {
+            srcPdfFiles = srcPdfFiles.Where(x => PP.GetDirectoryName(x.FullPath)._InStri(ignorePathStr) == false).ToList();
+        }
+
+        int index = 0;
+
+        foreach (var srcPdfFile in srcPdfFiles)
+        {
+            index++;
+
+            string relativeFileNameWithoutExt = PP.GetPathWithoutExtension(PP.GetRelativeFileName(srcPdfFile.FullPath, srcPdfDirPath));
+
+            List<PdfYomitokuOptions> optList = new();
+
+            PdfYomitokuOptions baseOptions = new PdfYomitokuOptions
+            {
+                //Dpi = 100,
+                //LiteMode = true, // 軽量化テスト用
+            };
+
+            {
+                PdfYomitokuOptions o;
+
+                o = baseOptions._CloneDeep();
+                o.Format = PdfYomitokuFormats.Pdf;
+                optList.Add(o);
+
+                o = baseOptions._CloneDeep();
+                o.Format = PdfYomitokuFormats.Html;
+                optList.Add(o);
+
+                o = baseOptions._CloneDeep();
+                o.Format = PdfYomitokuFormats.Html;
+                o.Combine = false;
+                optList.Add(o);
+
+                o = baseOptions._CloneDeep();
+                o.Format = PdfYomitokuFormats.MD;
+                optList.Add(o);
+
+                o = baseOptions._CloneDeep();
+                o.Format = PdfYomitokuFormats.MD;
+                o.Combine = false;
+                optList.Add(o);
+
+                o = baseOptions._CloneDeep();
+                o.Format = PdfYomitokuFormats.JSON;
+                optList.Add(o);
+            }
+
+            foreach (var opt in optList)
+            {
+                try
+                {
+                    string tagstr = opt.Format.ToString().ToLower();
+
+                    if (opt.Format == PdfYomitokuFormats.Html || opt.Format == PdfYomitokuFormats.MD)
+                    {
+                        tagstr = tagstr + "_" + (opt.Combine ? "combined" : "paged");
+                    }
+                    else if (opt.Format == PdfYomitokuFormats.Pdf)
+                    {
+                        tagstr = "pdf_ocred";
+                    }
+
+                    // 宛先ルートディレクトリ
+                    string dstRootDir = PP.Combine(dstDirPath, tagstr);
+
+                    // 宛先ファイル名
+                    string destFn = relativeFileNameWithoutExt + " [ " + tagstr.ToUpperInvariant() + " ]." + opt.Format.ToString().ToLowerInvariant();
+                    string dstFilePath = PP.Combine(dstRootDir, destFn);
+
+                    if (await Lfs.IsFileExistsAsync(dstFilePath, cancel: cancel) == false)
+                    {
+                        // ファイルが存在しないので処理を実施
+                        $"({index} / {srcPdfFiles.Count()}) Performing OCR from \"{srcPdfFile.FullPath}\" to \"{dstFilePath}\" ..."._Print();
+
+                        string internalShortName = srcPdfFile.FullPath.ToUpperInvariant()._HashSHA1()._GetHexString().Substring(0, 24).ToLowerInvariant();
+
+                        await PerformOcrAsync(srcPdfFile.FullPath, internalShortName, dstFilePath, opt, cancel: cancel);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    $"*** Error *** ({index} / {srcPdfFiles.Count()}) Performing OCR from \"{srcPdfFile.FullPath}\". Options: {opt._ObjectToJson(compact: true)}"._Print();
+                    ex._Error();
+                }
+            }
+        }
+    }
+
+    public async Task PerformOcrAsync(string srcPdfPath, string internalShortName, string dstFilePath, PdfYomitokuOptions options, CancellationToken cancel = default)
+    {
+        string formatTypeStr = options.Format.ToString().ToLowerInvariant();
+
+        internalShortName = Str.MakeVerySafeAsciiOnlyNonSpaceFileName(internalShortName, false);
+
+        if (options.Format != PdfYomitokuFormats.MD && options.Format != PdfYomitokuFormats.Html && options.Combine == false)
+        {
+            throw new CoresLibException("options.Format != PdfYomitokuFormats.MD && options.Combine == false");
+        }
+
+        await Lfs.DeleteFileIfExistsAsync(dstFilePath, cancel: cancel);
+
+        // ソース PDF のメタデータの読み込み
+        var srcPdfMetaData = await Pdf2Txt.GetDocInfoFromPdfFileAsync(srcPdfPath, cancel: cancel);
+
+        DateTimeOffset destFileTimeStamp = srcPdfMetaData.CreateDt;
+        if (srcPdfMetaData.ModifyDt._IsZeroDateTimeForFileSystem() == false && destFileTimeStamp > srcPdfMetaData.ModifyDt) destFileTimeStamp = srcPdfMetaData.ModifyDt;
+        if (destFileTimeStamp._IsZeroDateTimeForFileSystem()) destFileTimeStamp = new DateTime(1980, 1, 1);
+
+        var destFileTimeStampMetaData = new FileMetadata(destFileTimeStamp);
+
+        // 一時ディレクトリ作成 (すでに存在している場合は削除)
+        string ocrTmpDirPath = PP.Combine(Env.MyLocalTempDir, "ocr");
+
+        if (await Lfs.IsDirectoryExistsAsync(ocrTmpDirPath, cancel: cancel))
+        {
+            await Lfs.DeleteDirectoryAsync(ocrTmpDirPath, true, cancel: cancel);
+        }
+
+        await Lfs.CreateDirectoryAsync(ocrTmpDirPath, cancel: cancel);
+
+        var now = DtNow;
+
+        // ソース PDF ファイルをコピー
+        string tmpTag = $"{now._ToYymmddStr()}_{now._ToHhmmssStr()}_{internalShortName.ToLowerInvariant()}";
+
+        string ocrTmpSrcPdfPath = PP.Combine(ocrTmpDirPath, $"{tmpTag}.pdf");
+
+        await Lfs.CopyFileAsync(srcPdfPath, ocrTmpSrcPdfPath);
+
+        // 宛先ディレクトリを作成
+        string ocrTmpDstDirPath = PP.Combine(ocrTmpDirPath, "ocrdst_" + formatTypeStr);
+        await Lfs.CreateDirectoryAsync(ocrTmpDstDirPath, cancel: cancel);
+
+        // コマンドプロンプト設計
+        List<string> cmdList = new();
+
+        cmdList.Add(ocrTmpSrcPdfPath._EnsureQuotation());
+
+        cmdList.Add($"-f {formatTypeStr}");
+
+        cmdList.Add("-o " + ocrTmpDstDirPath._EnsureQuotation());
+
+        cmdList.Add("-d " + options.Device);
+
+        cmdList.Add("--encoding " + options.Encoding);
+
+        cmdList.Add("--dpi " + options.Dpi.ToString());
+
+        if (options.IgnoreLineBreak)
+        {
+            cmdList.Add("--ignore_line_break");
+        }
+
+        if (options.Combine)
+        {
+            cmdList.Add("--combine");
+        }
+
+        if (options.OutputFigures)
+        {
+            cmdList.Add("--figure");
+
+            if (options.OutputFigureLetters)
+            {
+                cmdList.Add("--figure_letter");
+            }
+        }
+
+        if (options.IgnoreHeaderFooter)
+        {
+            cmdList.Add("--ignore_meta");
+        }
+
+        if (options.LiteMode)
+        {
+            cmdList.Add("--lite");
+        }
+
+        string cmdLine = "yomitoku " + cmdList._Combine(" ");
+
+        await RunVEnvPythonCommandsAsync(cmdLine, options.TimeoutSecs * 1000, printTag: internalShortName, cancel: cancel);
+
+        if (options.Format == PdfYomitokuFormats.Pdf)
+        {
+            // PDF の場合の追加処理
+            string ocrDstGeneratedPdfPath = (await Lfs.EnumDirectoryAsync(ocrTmpDstDirPath, false, cancel: cancel)).Where(x => x.IsFile && x.Name._IsExtensionMatch(".pdf")).Single().FullPath;
+
+            await SuperBookExternalTools.ImageMagick.ApplyDocInfoToPdfFileAsync(ocrDstGeneratedPdfPath, srcPdfMetaData, cancel: cancel);
+
+            // 結果 PDF をユーザーが希望するパスにコピー
+            await Lfs.EnsureCreateDirectoryForFileAsync(dstFilePath, cancel: cancel);
+
+            await Lfs.CopyFileAsync(ocrDstGeneratedPdfPath, dstFilePath);
+
+            var fileMeta = new FileMetadata(destFileTimeStamp);
+
+            await Lfs.SetFileMetadataAsync(dstFilePath, destFileTimeStampMetaData, cancel: cancel);
+        }
+        else
+        {
+            // PDF 以外の場合の追加処理
+            var tmpDestFiles = (await Lfs.EnumDirectoryAsync(ocrTmpDstDirPath, false, cancel: cancel)).Where(x => x.IsFile && x.Name._IsExtensionMatch(formatTypeStr)).OrderBy(x => x.FullPath, StrCmpi);
+
+            string figuresDirName = ".figures_" + internalShortName.ToLowerInvariant() + "_" + formatTypeStr;
+
+            foreach (var tmpDestFile in tmpDestFiles)
+            {
+                var body = await Lfs.ReadStringFromFileAsync(tmpDestFile.FullPath, cancel: cancel);
+
+                body = body._ReplaceStr(
+                    $"<img src=\"figures/",
+                    $"<img src=\".figures/{figuresDirName}/",
+                    true);
+
+                await Lfs.WriteStringToFileAsync(tmpDestFile.FullPath, body, writeBom: true, cancel: cancel);
+            }
+
+            string figuresDirPathOld = PP.Combine(ocrTmpDstDirPath, "figures");
+            string figuresDirPathNew = PP.Combine(ocrTmpDstDirPath, ".figures", figuresDirName);
+
+            if (await Lfs.IsDirectoryExistsAsync(figuresDirPathOld))
+            {
+                string parentDir = PP.GetDirectoryName(figuresDirPathNew);
+                await Lfs.CreateDirectoryAsync(parentDir);
+
+                await Lfs.MoveDirectoryAsync(figuresDirPathOld, figuresDirPathNew, cancel: cancel);
+            }
+
+            string destTmpFileNameFinal;
+
+            if (options.Combine)
+            {
+                destTmpFileNameFinal = tmpDestFiles.Single().FullPath;
+            }
+            else
+            {
+                destTmpFileNameFinal = PP.Combine(ocrTmpDstDirPath, "final." + formatTypeStr);
+
+                Dictionary<int, (string FullPath, int LogicalPageNumber, Ref<bool> IsMainBody)> dict = new();
+
+                foreach (var mdPage in tmpDestFiles)
+                {
+                    // ファイル名からページ番号を推定
+                    string fn = mdPage.Name;
+                    string tag = "ocr_" + tmpTag + "_p";
+
+                    if (fn.StartsWith(tag, StrCmpi))
+                    {
+                        string tmp1 = fn.Substring(tag.Length);
+                        int a1 = tmp1.IndexOf(".");
+                        if (a1 != -1)
+                        {
+                            string tmp2 = tmp1.Substring(0, a1);
+
+                            int physicalPageNumber = tmp2._ToInt();
+
+                            if (physicalPageNumber >= 1)
+                            {
+                                int logicalPageNumber = physicalPageNumber;
+                                bool isMainBody = false;
+
+                                if (srcPdfMetaData.PhysicalPageStart.HasValue && srcPdfMetaData.LogicalPageStart.HasValue)
+                                {
+                                    if (physicalPageNumber >= srcPdfMetaData.PhysicalPageStart.Value)
+                                    {
+                                        logicalPageNumber = physicalPageNumber - srcPdfMetaData.PhysicalPageStart.Value + srcPdfMetaData.LogicalPageStart.Value;
+                                        isMainBody = true;
+                                    }
+                                }
+
+                                dict.Add(physicalPageNumber, (mdPage.FullPath, logicalPageNumber, isMainBody));
+                            }
+                        }
+                    }
+                }
+
+                var pagesList = dict.OrderBy(x => x.Key).ToList();
+
+                if (pagesList.Any(x => x.Value.IsMainBody) == false)
+                {
+                    // physical / logical マッピングがない PDF の場合
+                    foreach (var page in pagesList)
+                    {
+                        page.Value.IsMainBody.Set(true);
+                    }
+                }
+
+                // 結合
+                StringWriter w = new();
+
+                int mainBodyPagesTotal = pagesList.Select(x => x.Value).Where(x => x.IsMainBody).Select(x => x.LogicalPageNumber).DefaultIfEmpty(0).Max();
+                int prefacePagesTotal = pagesList.Select(x => x.Value).Where(x => x.IsMainBody == false).Select(x => x.LogicalPageNumber).DefaultIfEmpty(0).Max();
+                int physicalPagesTotal = pagesList.Select(x => x.Key).DefaultIfEmpty(0).Max();
+
+                foreach (var page in pagesList)
+                {
+                    string body = await Lfs.ReadStringFromFileAsync(page.Value.FullPath, cancel: cancel);
+
+                    PdfYomitokuMiniPageInfo info = new();
+
+                    info.Ok = true;
+
+                    info.PhysicalPageNo = page.Key;
+                    info.PhysicalPageTotal = physicalPagesTotal;
+
+                    if (page.Value.IsMainBody)
+                    {
+                        info.MainBodyPageNo = page.Value.LogicalPageNumber;
+                        info.MainBodyPageTotal = mainBodyPagesTotal;
+                    }
+                    else
+                    {
+                        info.PrefacePageNo = page.Value.LogicalPageNumber;
+                        info.PrefacePageTotal = prefacePagesTotal;
+                    }
+
+
+                    if (options.Format == PdfYomitokuFormats.MD)
+                    {
+                        w.WriteLine();
+                        w.WriteLine("*****");
+                        w.WriteLine();
+                        w.WriteLine($"--- *ScanPageInfo: {info._ObjectToJson(compact: true).Replace(",", ", ").Replace(":", ": ").Replace("{", "{ ").Replace("}", " }")}* ---");
+                        w.WriteLine();
+                    }
+                    else
+                    {
+                        w.WriteLine();
+                        w.WriteLine("<HR>");
+                        w.WriteLine();
+                        w.WriteLine($"<p><i>--- ScanPageInfo: {info._ObjectToJson(compact: true).Replace(",", ", ").Replace(":", ": ").Replace("{", "{ ").Replace("}", " }")} ---</i></p>");
+                        w.WriteLine();
+                    }
+
+                    w.WriteLine(body);
+                }
+
+                w.WriteLine();
+                w.WriteLine();
+
+                await Lfs.WriteStringToFileAsync(destTmpFileNameFinal, w.ToString(), writeBom: true, cancel: cancel);
+            }
+
+            // 結果のコピー
+            await Lfs.EnsureCreateDirectoryForFileAsync(dstFilePath, cancel: cancel);
+
+            await Lfs.CopyFileAsync(destTmpFileNameFinal, dstFilePath);
+
+            var fileMeta = new FileMetadata(destFileTimeStamp);
+
+            await Lfs.SetFileMetadataAsync(dstFilePath, destFileTimeStampMetaData, cancel: cancel);
+
+            if (await Lfs.IsDirectoryExistsAsync(figuresDirPathNew, cancel: cancel))
+            {
+                string dstImgDirPath = PP.Combine(PP.GetDirectoryName(dstFilePath), ".figures", PP.GetFileName(figuresDirPathNew));
+
+                await Lfs.CopyDirAsync(figuresDirPathNew, dstImgDirPath, cancel: cancel);
+
+                foreach (var imgFile in (await Lfs.EnumDirectoryAsync(dstImgDirPath, cancel: cancel)).Where(x => x.IsFile))
+                {
+                    await Lfs.SetFileMetadataAsync(imgFile.FullPath, destFileTimeStampMetaData, cancel: cancel);
+                }
+
+                await Lfs.SetDirectoryMetadataAsync(dstImgDirPath, destFileTimeStampMetaData, cancel: cancel);
+
+                string parentDir = PP.GetDirectoryName(dstImgDirPath);
+
+                // ".figures" を隠しディレクトリにする
+                try
+                {
+                    var meta = await Lfs.GetDirectoryMetadataAsync(parentDir, cancel: cancel);
+                    if (meta.Attributes != null && meta.Attributes.Bit(FileAttributes.Hidden) == false)
+                    {
+                        FileMetadata meta2 = new FileMetadata(attributes: meta.Attributes.BitAdd(FileAttributes.Hidden));
+
+                        await Lfs.SetDirectoryMetadataAsync(parentDir, meta2, cancel);
+                    }
+                }
+                catch { }
+            }
+        }
+    }
+
+    async Task<EasyExecResult> RunVEnvPythonCommandsAsync(string commandLines,
+        int timeout = Timeout.Infinite, bool throwOnErrorExitCode = true, string printTag = "",
+        int easyOutputMaxSize = 0,
+        Encoding? inputEncoding = null, Encoding? outputEncoding = null, Encoding? errorEncoding = null,
+        CancellationToken cancel = default)
+    {
+        return await RunBatchCommandsDirectAsync(
+            BuildLines(@".\venv\Scripts\activate",
+            commandLines),
+            timeout,
+            throwOnErrorExitCode,
+            printTag,
+            easyOutputMaxSize,
+            inputEncoding,
+            outputEncoding,
+            errorEncoding,
+            cancel);
+    }
+
+    async Task<EasyExecResult> RunBatchCommandsDirectAsync(string commandLines,
+        int timeout = Timeout.Infinite, bool throwOnErrorExitCode = true, string printTag = "",
+        int easyOutputMaxSize = 0,
+        Encoding? inputEncoding = null, Encoding? outputEncoding = null, Encoding? errorEncoding = null,
+        CancellationToken cancel = default)
+    {
+        if (easyOutputMaxSize <= 0) easyOutputMaxSize = CoresConfig.DefaultAiUtilSettings.DefaultMaxStdOutBufferSize;
+
+        string win32cmd = Env.Win32_SystemDir._CombinePath("cmd.exe");
+
+        commandLines = BuildLines(commandLines, "exit");
+
+        string tmp1 = "";
+        if (printTag._IsFilled())
+        {
+            tmp1 += ": " + printTag.Trim();
+        }
+        string printTagMain = $"[YomiToku{tmp1}]";
+
+        EasyExecResult ret = await EasyExec.ExecAsync(win32cmd, "", this.YomiTokuPythonBaseDir,
+            easyInputStr: commandLines,
+            flags: ExecFlags.Default | ExecFlags.EasyPrintRealtimeStdOut | ExecFlags.EasyPrintRealtimeStdErr,
+            timeout: timeout, cancel: cancel, throwOnErrorExitCode: true,
+            easyOutputMaxSize: easyOutputMaxSize,
+            printTag: printTagMain,
+            inputEncoding: inputEncoding, outputEncoding: outputEncoding, errorEncoding: errorEncoding);
+
+        return ret;
+    }
+}
 
 public enum DrawTextHorizonalAlign
 {
@@ -4085,7 +4578,7 @@ public static class PnOcrLib
         //Cv2.ImEncode(".png", mat, out var imgPngBytes);
         using var pix = Pix.LoadFromMemory(pngMs.ToArray());
 
-        Page page;
+        Tesseract.Page page;
 
         var engine = GetOcrEngine(ocrEngineType, ocrEngineInstanceIndex);
 

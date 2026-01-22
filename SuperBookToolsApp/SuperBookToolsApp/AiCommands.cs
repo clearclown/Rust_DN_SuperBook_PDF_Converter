@@ -42,19 +42,23 @@ namespace SuperBookTools.App
             Path.Combine(Env.AppRootDir, @"_dummy.exe"),
             Path.Combine(Env.AppRootDir, @"_dummy.exe")));
 
+        public static readonly PdfYomitokuLib YomiToku = new PdfYomitokuLib(Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\yomitoku"));
+
         public static readonly AiUtilBasicSettings Settings = new AiUtilBasicSettings
         {
             AiTest_RealEsrgan_BaseDir = Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\RealEsrgan\RealEsrgan_Repo"),
             AiTest_TesseractOCR_Data_Dir = Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\TesseractOCR_Data"),
         };
         public static readonly AiTask Task = new AiTask(Settings, FfMpeg);
+
+        public const string Post_OCR_Dir = "Post_OCR_Dir";
     }
 
     public static partial class Commands
     {
         [ConsoleCommand(
             "ConvertPdf command",
-            "ConvertPdf [srcDir] [/dst:dstDir]",
+            "ConvertPdf [srcDir] [/dst:dstDir] [/ocr:yes|no]",
             "ConvertPdf command")]
         public static async Task<int> ConvertPdf(ConsoleService c, string cmdName, string str)
         {
@@ -62,18 +66,38 @@ namespace SuperBookTools.App
             {
                 new ConsoleParam("[srcDir]", ConsoleService.Prompt, "Source directory path: ", ConsoleService.EvalNotEmpty, null),
                 new ConsoleParam("dst", ConsoleService.Prompt, "Destination directory path: ", ConsoleService.EvalNotEmpty, null),
+                new ConsoleParam("ocr", ConsoleService.Prompt, "Perform Japanese High-Quality OCR? (Y/N): ", null, null),
             };
             ConsoleParamValueList vl = c.ParseCommandList(cmdName, str, args);
 
             string srcDir = vl.DefaultParam.StrValue;
             string dstDir = vl["dst"].StrValue;
 
-            if (srcDir._IsSamei(dstDir) == false)
+            srcDir = PP.RemoveLastSeparatorChar(await Lfs.NormalizePathAsync(srcDir, normalizeRelativePathIfSupported: true));
+            dstDir = PP.RemoveLastSeparatorChar(await Lfs.NormalizePathAsync(dstDir, normalizeRelativePathIfSupported: true));
+
+            $"- Source Dir: \"{srcDir}\""._Print();
+            $"- Destination Dir: \"{dstDir}\""._Print();
+
+            if (srcDir._IsSamei(dstDir))
             {
                 throw new CoresException("srcDir must not be same to dstDir.");
             }
 
+            await Lfs.CreateDirectoryAsync(dstDir);
+
             SuperPerformPdfOptions options = new SuperPerformPdfOptions {/* MaxPagesForDebug = 120, SaveDebugPng = true, SkipRealesrgan = true */ };
+
+            bool performOcr = vl["ocr"].BoolValue;
+
+            if (performOcr)
+            {
+                ""._Print();
+                "***"._Print();
+                $"The \"ocr\" option is enabled. This OCR feature uses \"YomiKaku\" AI engine published by kotaro.kinoshita-san. Plesae read the https://github.com/kotaro-kinoshita/yomitoku/blob/cba0a134e0d2ad3bfdce163231b3cb91de07928e/README.md license document."._Print();
+                "***"._Print();
+                ""._Print();
+            }
 
             var srcFiles = (await Lfs.EnumDirectoryAsync(srcDir, true)).Where(x => x.IsFile && x.Name.StartsWith("_") == false && x.Name._IsExtensionMatch(".pdf")).OrderBy(x => x.FullPath, StrCmpi)._Shuffle().ToList();
 
@@ -116,6 +140,15 @@ namespace SuperBookTools.App
                     errorFilesList.Add(src.FullPath);
                     numError++;
                 }
+            }
+
+            if (performOcr)
+            {
+                Con.WriteLine("Performing Japanese OCR started ...");
+
+                await SuperBookExternalTools.YomiToku.PerformOcrDirAsync(dstDir, PP.Combine(dstDir, SuperBookExternalTools.Post_OCR_Dir), SuperBookExternalTools.Post_OCR_Dir);
+
+                Con.WriteLine("Performing Japanese OCR completed.");
             }
 
             if (errorFilesList.Count >= 1)
