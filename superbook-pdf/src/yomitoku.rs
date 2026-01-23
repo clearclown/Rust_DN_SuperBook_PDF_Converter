@@ -1366,4 +1366,139 @@ mod tests {
             assert!(!ext.is_empty());
         }
     }
+
+    // ============ Error Handling Tests ============
+
+    #[test]
+    fn test_error_input_not_found() {
+        let path = std::path::PathBuf::from("/nonexistent/image.png");
+        let err = YomiTokuError::InputNotFound(path.clone());
+        let msg = format!("{}", err);
+        assert!(msg.contains("Input file not found"));
+        assert!(msg.contains("/nonexistent/image.png"));
+    }
+
+    #[test]
+    fn test_error_execution_failed() {
+        let err = YomiTokuError::ExecutionFailed("Engine initialization failed".to_string());
+        let msg = format!("{}", err);
+        assert!(msg.contains("execution failed"));
+    }
+
+    #[test]
+    fn test_error_not_installed() {
+        let err = YomiTokuError::NotInstalled;
+        let msg = format!("{}", err);
+        assert!(msg.contains("not installed") || msg.contains("not found"));
+    }
+
+    #[test]
+    fn test_error_output_not_writable() {
+        let path = std::path::PathBuf::from("/readonly/dir");
+        let err = YomiTokuError::OutputNotWritable(path);
+        let msg = format!("{}", err);
+        assert!(msg.contains("not writable"));
+    }
+
+    #[test]
+    fn test_error_invalid_output() {
+        let err = YomiTokuError::InvalidOutput;
+        let msg = format!("{}", err);
+        assert!(msg.contains("Invalid output"));
+    }
+
+    #[test]
+    fn test_error_from_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let yomi_err: YomiTokuError = io_err.into();
+        let msg = format!("{}", yomi_err);
+        assert!(!msg.is_empty());
+    }
+
+    #[test]
+    fn test_error_execution_failed_debug() {
+        let err = YomiTokuError::ExecutionFailed("test".to_string());
+        let debug = format!("{:?}", err);
+        assert!(debug.contains("ExecutionFailed"));
+    }
+
+    #[test]
+    fn test_ocr_result_with_error_state() {
+        // Test OcrResult when no text was detected
+        let result = OcrResult {
+            input_path: std::path::PathBuf::from("test.png"),
+            text_blocks: vec![],
+            confidence: 0.0,
+            processing_time: std::time::Duration::from_secs(1),
+            text_direction: TextDirection::Horizontal,
+        };
+        assert!(result.text_blocks.is_empty());
+        assert_eq!(result.confidence, 0.0);
+    }
+
+    #[test]
+    fn test_batch_result_partial_failure() {
+        let results = BatchOcrResult {
+            successful: vec![OcrResult {
+                input_path: std::path::PathBuf::from("good.png"),
+                text_blocks: vec![],
+                confidence: 0.9,
+                processing_time: std::time::Duration::from_millis(100),
+                text_direction: TextDirection::Horizontal,
+            }],
+            failed: vec![(
+                std::path::PathBuf::from("bad.png"),
+                "OCR failed".to_string(),
+            )],
+            total_time: std::time::Duration::from_millis(200),
+        };
+
+        assert_eq!(results.successful.len(), 1);
+        assert_eq!(results.failed.len(), 1);
+    }
+
+    #[test]
+    fn test_batch_result_all_errors() {
+        let results = BatchOcrResult {
+            successful: vec![],
+            failed: vec![
+                (std::path::PathBuf::from("a.png"), "Timeout".to_string()),
+                (
+                    std::path::PathBuf::from("b.png"),
+                    "Python not found".to_string(),
+                ),
+            ],
+            total_time: std::time::Duration::from_secs(30),
+        };
+
+        assert!(results.successful.is_empty());
+        assert_eq!(results.failed.len(), 2);
+    }
+
+    #[test]
+    fn test_batch_result_all_success() {
+        let results = BatchOcrResult {
+            successful: vec![
+                OcrResult {
+                    input_path: std::path::PathBuf::from("page1.png"),
+                    text_blocks: vec![],
+                    confidence: 0.95,
+                    processing_time: std::time::Duration::from_millis(50),
+                    text_direction: TextDirection::Horizontal,
+                },
+                OcrResult {
+                    input_path: std::path::PathBuf::from("page2.png"),
+                    text_blocks: vec![],
+                    confidence: 0.92,
+                    processing_time: std::time::Duration::from_millis(55),
+                    text_direction: TextDirection::Vertical,
+                },
+            ],
+            failed: vec![],
+            total_time: std::time::Duration::from_millis(105),
+        };
+
+        assert_eq!(results.successful.len(), 2);
+        assert!(results.failed.is_empty());
+    }
 }
