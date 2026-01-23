@@ -1550,4 +1550,157 @@ mod tests {
             panic!("Wrong error variant");
         }
     }
+
+    // ============ Additional Error Handling Tests ============
+
+    #[test]
+    fn test_error_image_not_found_display() {
+        let path = PathBuf::from("/test/image.png");
+        let err = DeskewError::ImageNotFound(path);
+        let msg = format!("{}", err);
+        assert!(msg.contains("Image not found"));
+        assert!(msg.contains("/test/image.png"));
+    }
+
+    #[test]
+    fn test_error_invalid_format_display() {
+        let err = DeskewError::InvalidFormat("Unsupported format: BMP".to_string());
+        let msg = format!("{}", err);
+        assert!(msg.contains("Invalid image format"));
+        assert!(msg.contains("BMP"));
+    }
+
+    #[test]
+    fn test_error_detection_failed_display() {
+        let err = DeskewError::DetectionFailed("No edges detected".to_string());
+        let msg = format!("{}", err);
+        assert!(msg.contains("Detection failed"));
+        assert!(msg.contains("No edges"));
+    }
+
+    #[test]
+    fn test_error_correction_failed_display() {
+        let err = DeskewError::CorrectionFailed("Rotation failed".to_string());
+        let msg = format!("{}", err);
+        assert!(msg.contains("Correction failed"));
+    }
+
+    #[test]
+    fn test_error_from_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let deskew_err: DeskewError = io_err.into();
+        let msg = format!("{}", deskew_err);
+        assert!(msg.contains("IO error"));
+    }
+
+    #[test]
+    fn test_error_debug_implementations() {
+        let errors = [
+            DeskewError::ImageNotFound(PathBuf::from("/test.png")),
+            DeskewError::InvalidFormat("test".to_string()),
+            DeskewError::DetectionFailed("test".to_string()),
+            DeskewError::CorrectionFailed("test".to_string()),
+        ];
+
+        for err in &errors {
+            let debug = format!("{:?}", err);
+            assert!(!debug.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_skew_detection_zero_confidence() {
+        let detection = SkewDetection {
+            angle: 0.0,
+            confidence: 0.0,
+            feature_count: 0,
+        };
+        assert_eq!(detection.confidence, 0.0);
+        assert_eq!(detection.feature_count, 0);
+    }
+
+    #[test]
+    fn test_skew_detection_high_confidence() {
+        let detection = SkewDetection {
+            angle: 5.0,
+            confidence: 0.99,
+            feature_count: 1000,
+        };
+        assert!(detection.confidence > 0.9);
+        assert!(detection.feature_count > 100);
+    }
+
+    #[test]
+    fn test_deskew_result_unchanged_size() {
+        let result = DeskewResult {
+            detection: SkewDetection {
+                angle: 0.05,
+                confidence: 0.8,
+                feature_count: 50,
+            },
+            corrected: false,
+            output_path: PathBuf::from("/output/image.png"),
+            original_size: (1000, 1500),
+            corrected_size: (1000, 1500),
+        };
+        assert!(!result.corrected);
+        assert_eq!(result.original_size, result.corrected_size);
+    }
+
+    #[test]
+    fn test_deskew_result_size_changed() {
+        let result = DeskewResult {
+            detection: SkewDetection {
+                angle: 5.0,
+                confidence: 0.9,
+                feature_count: 200,
+            },
+            corrected: true,
+            output_path: PathBuf::from("/output/corrected.png"),
+            original_size: (1000, 1500),
+            corrected_size: (1050, 1550),
+        };
+        assert!(result.corrected);
+        // Corrected size may differ due to rotation
+        assert!(result.corrected_size.0 >= result.original_size.0);
+    }
+
+    #[test]
+    fn test_deskew_options_extreme_angles() {
+        let opts = DeskewOptions::builder()
+            .max_angle(45.0)
+            .threshold_angle(0.001)
+            .build();
+        assert_eq!(opts.max_angle, 45.0);
+        assert!(opts.threshold_angle < 0.01);
+    }
+
+    #[test]
+    fn test_quality_mode_all_variants() {
+        let modes = [
+            QualityMode::Fast,
+            QualityMode::Standard,
+            QualityMode::HighQuality,
+        ];
+
+        for mode in modes {
+            let debug = format!("{:?}", mode);
+            assert!(!debug.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_algorithm_all_variants() {
+        let algorithms = [
+            DeskewAlgorithm::HoughLines,
+            DeskewAlgorithm::ProjectionProfile,
+            DeskewAlgorithm::TextLineDetection,
+            DeskewAlgorithm::Combined,
+        ];
+
+        for algo in algorithms {
+            let debug = format!("{:?}", algo);
+            assert!(!debug.is_empty());
+        }
+    }
 }

@@ -1462,4 +1462,142 @@ mod tests {
             assert!(opts.scale == 2 || opts.scale == 4);
         }
     }
+
+    // ============ Error Handling Tests ============
+
+    #[test]
+    fn test_error_model_not_found() {
+        let err = RealEsrganError::ModelNotFound("custom_model".to_string());
+        let msg = format!("{}", err);
+        assert!(msg.contains("Model not found"));
+        assert!(msg.contains("custom_model"));
+    }
+
+    #[test]
+    fn test_error_invalid_scale() {
+        let err = RealEsrganError::InvalidScale(3);
+        let msg = format!("{}", err);
+        assert!(msg.contains("Invalid scale"));
+        assert!(msg.contains("3"));
+    }
+
+    #[test]
+    fn test_error_input_not_found() {
+        let path = std::path::PathBuf::from("/missing/image.png");
+        let err = RealEsrganError::InputNotFound(path);
+        let msg = format!("{}", err);
+        assert!(msg.contains("Input image not found"));
+    }
+
+    #[test]
+    fn test_error_output_not_writable() {
+        let path = std::path::PathBuf::from("/readonly/dir");
+        let err = RealEsrganError::OutputNotWritable(path);
+        let msg = format!("{}", err);
+        assert!(msg.contains("not writable"));
+    }
+
+    #[test]
+    fn test_error_processing_failed() {
+        let err = RealEsrganError::ProcessingFailed("CUDA out of memory".to_string());
+        let msg = format!("{}", err);
+        assert!(msg.contains("Processing failed"));
+        assert!(msg.contains("CUDA"));
+    }
+
+    #[test]
+    fn test_error_insufficient_vram() {
+        let err = RealEsrganError::InsufficientVram {
+            required: 4096,
+            available: 2048,
+        };
+        let msg = format!("{}", err);
+        assert!(msg.contains("memory"));
+        assert!(msg.contains("4096"));
+        assert!(msg.contains("2048"));
+    }
+
+    #[test]
+    fn test_error_image_error() {
+        let err = RealEsrganError::ImageError("Corrupt PNG header".to_string());
+        let msg = format!("{}", err);
+        assert!(msg.contains("Image error"));
+    }
+
+    #[test]
+    fn test_error_from_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
+        let res_err: RealEsrganError = io_err.into();
+        let msg = format!("{}", res_err);
+        assert!(msg.contains("IO error"));
+    }
+
+    #[test]
+    fn test_error_debug_all_variants() {
+        let errors: Vec<RealEsrganError> = vec![
+            RealEsrganError::ModelNotFound("test".to_string()),
+            RealEsrganError::InvalidScale(5),
+            RealEsrganError::InputNotFound(std::path::PathBuf::from("/test")),
+            RealEsrganError::OutputNotWritable(std::path::PathBuf::from("/test")),
+            RealEsrganError::ProcessingFailed("test".to_string()),
+            RealEsrganError::InsufficientVram {
+                required: 100,
+                available: 50,
+            },
+            RealEsrganError::ImageError("test".to_string()),
+        ];
+
+        for err in &errors {
+            let debug = format!("{:?}", err);
+            assert!(!debug.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_upscale_result_success() {
+        let result = UpscaleResult {
+            input_path: std::path::PathBuf::from("/input/image.png"),
+            output_path: std::path::PathBuf::from("/output/image_2x.png"),
+            original_size: (1920, 1080),
+            upscaled_size: (3840, 2160),
+            actual_scale: 2.0,
+            processing_time: std::time::Duration::from_secs(5),
+            vram_used_mb: Some(512),
+        };
+        assert!((result.actual_scale - 2.0).abs() < 0.01);
+        assert_eq!(result.upscaled_size.0, result.original_size.0 * 2);
+        assert_eq!(result.upscaled_size.1, result.original_size.1 * 2);
+    }
+
+    #[test]
+    fn test_upscale_result_4x() {
+        let result = UpscaleResult {
+            input_path: std::path::PathBuf::from("/input/small.png"),
+            output_path: std::path::PathBuf::from("/output/large.png"),
+            original_size: (640, 480),
+            upscaled_size: (2560, 1920),
+            actual_scale: 4.0,
+            processing_time: std::time::Duration::from_secs(15),
+            vram_used_mb: None,
+        };
+        assert!((result.actual_scale - 4.0).abs() < 0.01);
+        assert_eq!(result.upscaled_size.0, result.original_size.0 * 4);
+    }
+
+    #[test]
+    fn test_model_enum_all_variants() {
+        use super::RealEsrganModel;
+        let models = [
+            RealEsrganModel::X4Plus,
+            RealEsrganModel::X4PlusAnime,
+            RealEsrganModel::NetX4Plus,
+            RealEsrganModel::X2Plus,
+            RealEsrganModel::Custom("my_model".to_string()),
+        ];
+
+        for model in &models {
+            let debug = format!("{:?}", model);
+            assert!(!debug.is_empty());
+        }
+    }
 }
