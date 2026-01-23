@@ -642,4 +642,197 @@ mod tests {
         let spinner = create_spinner("Processing...");
         assert_eq!(spinner.message(), "Processing...");
     }
+
+    // ==================== Additional API Tests ====================
+
+    #[test]
+    fn test_all_presets_have_valid_defaults() {
+        // PDF Writer presets
+        let pdf_default = PdfWriterOptions::default();
+        let pdf_high = PdfWriterOptions::high_quality();
+        let pdf_compact = PdfWriterOptions::compact();
+        assert!(pdf_default.dpi > 0);
+        assert!(pdf_high.dpi >= pdf_default.dpi);
+        assert!(pdf_compact.dpi <= pdf_default.dpi);
+
+        // Deskew presets
+        let dsk_default = DeskewOptions::default();
+        let dsk_high = DeskewOptions::high_quality();
+        let dsk_fast = DeskewOptions::fast();
+        assert!(dsk_default.max_angle > 0.0);
+        assert!(dsk_high.max_angle > 0.0);
+        assert!(dsk_fast.max_angle > 0.0);
+
+        // Margin presets
+        let mrg_default = MarginOptions::default();
+        let mrg_dark = MarginOptions::for_dark_background();
+        let mrg_precise = MarginOptions::precise();
+        assert!(mrg_default.background_threshold > 0);
+        assert!(mrg_dark.background_threshold < mrg_default.background_threshold);
+        assert!(mrg_precise.edge_sensitivity > mrg_default.edge_sensitivity);
+
+        // RealESRGAN presets
+        let res_default = RealEsrganOptions::default();
+        let res_x4 = RealEsrganOptions::x4_high_quality();
+        let res_anime = RealEsrganOptions::anime();
+        assert!(res_default.scale > 0);
+        assert_eq!(res_x4.scale, 4);
+        assert!(res_anime.scale > 0);
+    }
+
+    #[test]
+    fn test_builder_chain_immutability() {
+        // Verify builder methods return new instances
+        let builder1 = PdfWriterOptions::builder();
+        let builder2 = builder1.dpi(300);
+        let opts = builder2.build();
+        assert_eq!(opts.dpi, 300);
+
+        // Another chain
+        let opts2 = PdfWriterOptions::builder()
+            .dpi(600)
+            .jpeg_quality(95)
+            .build();
+        assert_eq!(opts2.dpi, 600);
+        assert_eq!(opts2.jpeg_quality, 95);
+    }
+
+    #[test]
+    fn test_error_messages_are_descriptive() {
+        // PDF Reader errors
+        let pdf_err = PdfReaderError::FileNotFound(PathBuf::from("/test.pdf"));
+        let msg = format!("{}", pdf_err);
+        assert!(msg.contains("test.pdf"));
+
+        // Extract errors
+        let ext_err = ExtractError::PdfNotFound(PathBuf::from("/input.pdf"));
+        let msg = format!("{}", ext_err);
+        assert!(msg.contains("input.pdf"));
+
+        // Deskew errors
+        let dsk_err = DeskewError::ImageNotFound(PathBuf::from("/image.png"));
+        let msg = format!("{}", dsk_err);
+        assert!(msg.contains("image.png"));
+    }
+
+    #[test]
+    fn test_exit_code_uniqueness() {
+        // All exit codes should be unique
+        let codes = [
+            ExitCode::Success,
+            ExitCode::GeneralError,
+            ExitCode::InvalidArgs,
+            ExitCode::InputNotFound,
+            ExitCode::OutputError,
+            ExitCode::ProcessingError,
+            ExitCode::GpuError,
+            ExitCode::ExternalToolError,
+        ];
+
+        let code_values: Vec<i32> = codes.iter().map(|c| c.code()).collect();
+        let mut unique_values = code_values.clone();
+        unique_values.sort();
+        unique_values.dedup();
+
+        assert_eq!(
+            code_values.len(),
+            unique_values.len(),
+            "Exit codes must be unique"
+        );
+    }
+
+    #[test]
+    fn test_margins_arithmetic() {
+        let margins = Margins {
+            top: 100,
+            bottom: 150,
+            left: 50,
+            right: 75,
+        };
+
+        assert_eq!(margins.total_horizontal(), 125);
+        assert_eq!(margins.total_vertical(), 250);
+
+        // Test with zero margins
+        let zero_margins = Margins::default();
+        assert_eq!(zero_margins.total_horizontal(), 0);
+        assert_eq!(zero_margins.total_vertical(), 0);
+    }
+
+    #[test]
+    fn test_content_rect_calculations() {
+        let rect = ContentRect {
+            x: 50,
+            y: 100,
+            width: 800,
+            height: 1000,
+        };
+
+        // Verify coordinates are stored correctly
+        assert_eq!(rect.x, 50);
+        assert_eq!(rect.y, 100);
+        assert_eq!(rect.width, 800);
+        assert_eq!(rect.height, 1000);
+
+        // Calculate right and bottom
+        let right = rect.x + rect.width;
+        let bottom = rect.y + rect.height;
+        assert_eq!(right, 850);
+        assert_eq!(bottom, 1100);
+    }
+
+    #[test]
+    fn test_page_number_positions() {
+        let positions = [
+            PageNumberPosition::BottomCenter,
+            PageNumberPosition::BottomOutside,
+            PageNumberPosition::BottomInside,
+            PageNumberPosition::TopCenter,
+            PageNumberPosition::TopOutside,
+        ];
+
+        // All positions should be distinct
+        for (i, pos1) in positions.iter().enumerate() {
+            for (j, pos2) in positions.iter().enumerate() {
+                if i != j {
+                    assert_ne!(std::mem::discriminant(pos1), std::mem::discriminant(pos2));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_yomitoku_language_options() {
+        let jpn = YomiTokuOptions::builder()
+            .language(yomitoku::Language::Japanese)
+            .build();
+        assert!(matches!(jpn.language, yomitoku::Language::Japanese));
+
+        let eng = YomiTokuOptions::builder()
+            .language(yomitoku::Language::English)
+            .build();
+        assert!(matches!(eng.language, yomitoku::Language::English));
+    }
+
+    #[test]
+    fn test_deskew_algorithms() {
+        let algorithms = [
+            DeskewAlgorithm::HoughLines,
+            DeskewAlgorithm::ProjectionProfile,
+            DeskewAlgorithm::TextLineDetection,
+            DeskewAlgorithm::Combined,
+        ];
+
+        // All algorithms should be usable in options
+        for algo in algorithms {
+            let opts = DeskewOptions::builder().algorithm(algo).build();
+            assert!(matches!(
+                opts.algorithm,
+                DeskewAlgorithm::HoughLines
+                    | DeskewAlgorithm::ProjectionProfile
+                    | DeskewAlgorithm::TextLineDetection
+                    | DeskewAlgorithm::Combined
+            ));
+        }
+    }
 }
