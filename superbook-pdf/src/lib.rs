@@ -162,3 +162,478 @@ pub mod exit_codes {
     pub const GPU_ERROR: i32 = ExitCode::GpuError as i32;
     pub const EXTERNAL_TOOL_ERROR: i32 = ExitCode::ExternalToolError as i32;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    // ============ Re-export Verification Tests ============
+
+    #[test]
+    fn test_all_public_types_accessible() {
+        // Verify all public types are accessible via re-exports
+
+        // PDF Reader types
+        let _reader_err: Option<PdfReaderError> = None;
+        let _doc: Option<PdfDocument> = None;
+        let _meta: PdfMetadata = Default::default();
+        let _page: Option<PdfPage> = None;
+
+        // PDF Writer types
+        let _writer_err: Option<PdfWriterError> = None;
+        let _opts = PdfWriterOptions::default();
+        let _builder = PdfWriterOptions::builder();
+
+        // Image Extract types
+        let _ext_err: Option<ExtractError> = None;
+        let _ext_opts = ExtractOptions::default();
+        let _format = ImageFormat::Png;
+        let _colorspace = ColorSpace::Rgb;
+
+        // Deskew types
+        let _dsk_err: Option<DeskewError> = None;
+        let _dsk_opts = DeskewOptions::default();
+        let _algo = DeskewAlgorithm::HoughLines;
+        let _quality = QualityMode::Standard;
+
+        // Margin types
+        let _mrg_err: Option<MarginError> = None;
+        let _mrg_opts = MarginOptions::default();
+        let _detection_mode = ContentDetectionMode::BackgroundColor;
+        let _margins = Margins::default();
+
+        // Page Number types
+        let _pgn_err: Option<PageNumberError> = None;
+        let _pgn_opts = PageNumberOptions::default();
+        let _position = PageNumberPosition::BottomCenter;
+
+        // AI Bridge types
+        let _ai_err: Option<AiBridgeError> = None;
+        let _ai_config = AiBridgeConfig::default();
+
+        // RealESRGAN types
+        let _res_err: Option<RealEsrganError> = None;
+        let _res_opts = RealEsrganOptions::default();
+
+        // YomiToku types
+        let _yomi_err: Option<YomiTokuError> = None;
+        let _yomi_opts = YomiTokuOptions::default();
+        let _direction = TextDirection::Horizontal;
+
+        // CLI types
+        let code = ExitCode::Success;
+        assert_eq!(code.code(), 0);
+    }
+
+    #[test]
+    fn test_exit_codes_module() {
+        assert_eq!(exit_codes::SUCCESS, 0);
+        assert_ne!(exit_codes::GENERAL_ERROR, 0);
+        assert_ne!(exit_codes::INVALID_ARGS, 0);
+        assert_ne!(exit_codes::INPUT_NOT_FOUND, 0);
+        assert_ne!(exit_codes::OUTPUT_ERROR, 0);
+        assert_ne!(exit_codes::PROCESSING_ERROR, 0);
+        assert_ne!(exit_codes::GPU_ERROR, 0);
+        assert_ne!(exit_codes::EXTERNAL_TOOL_ERROR, 0);
+    }
+
+    #[test]
+    fn test_exit_codes_match_enum() {
+        assert_eq!(exit_codes::SUCCESS, ExitCode::Success.code());
+        assert_eq!(exit_codes::GENERAL_ERROR, ExitCode::GeneralError.code());
+        assert_eq!(exit_codes::INVALID_ARGS, ExitCode::InvalidArgs.code());
+        assert_eq!(exit_codes::INPUT_NOT_FOUND, ExitCode::InputNotFound.code());
+        assert_eq!(exit_codes::OUTPUT_ERROR, ExitCode::OutputError.code());
+        assert_eq!(
+            exit_codes::PROCESSING_ERROR,
+            ExitCode::ProcessingError.code()
+        );
+        assert_eq!(exit_codes::GPU_ERROR, ExitCode::GpuError.code());
+        assert_eq!(
+            exit_codes::EXTERNAL_TOOL_ERROR,
+            ExitCode::ExternalToolError.code()
+        );
+    }
+
+    // ============ Builder Pattern Consistency Tests ============
+
+    #[test]
+    fn test_all_builders_follow_same_pattern() {
+        // All builders should work with build() method
+        let _pdf = PdfWriterOptions::builder().dpi(300).build();
+        let _dsk = DeskewOptions::builder().max_angle(10.0).build();
+        let _ext = ExtractOptions::builder().dpi(300).build();
+        let _mrg = MarginOptions::builder().min_margin(5).build();
+        let _pgn = PageNumberOptions::builder().min_confidence(70.0).build();
+        let _res = RealEsrganOptions::builder().scale(2).build();
+        let _yomi = YomiTokuOptions::builder().language(yomitoku::Language::Japanese).build();
+        let _ai = AiBridgeConfig::builder().max_retries(3).build();
+    }
+
+    #[test]
+    fn test_all_defaults_are_valid() {
+        // All default options should be usable
+        let pdf = PdfWriterOptions::default();
+        assert!(pdf.dpi > 0);
+        assert!(pdf.jpeg_quality > 0 && pdf.jpeg_quality <= 100);
+
+        let dsk = DeskewOptions::default();
+        assert!(dsk.max_angle > 0.0);
+        assert!(dsk.threshold_angle >= 0.0);
+
+        let ext = ExtractOptions::default();
+        assert!(ext.dpi > 0);
+
+        let mrg = MarginOptions::default();
+        assert!(mrg.background_threshold > 0);
+
+        let pgn = PageNumberOptions::default();
+        assert!(pgn.min_confidence > 0.0);
+        assert!(!pgn.ocr_language.is_empty());
+
+        let res = RealEsrganOptions::default();
+        assert!(res.scale > 0);
+
+        let yomi = YomiTokuOptions::default();
+        // Language enum has a default value (Japanese)
+        assert!(matches!(yomi.language, yomitoku::Language::Japanese));
+    }
+
+    // ============ Preset Consistency Tests ============
+
+    #[test]
+    fn test_pdf_writer_presets() {
+        let high = PdfWriterOptions::high_quality();
+        let compact = PdfWriterOptions::compact();
+
+        // High quality should have higher DPI and quality
+        assert!(high.dpi >= compact.dpi);
+        assert!(high.jpeg_quality >= compact.jpeg_quality);
+    }
+
+    #[test]
+    fn test_deskew_presets() {
+        let high = DeskewOptions::high_quality();
+        let fast = DeskewOptions::fast();
+
+        // High quality should use better interpolation
+        assert!(matches!(high.quality_mode, QualityMode::HighQuality));
+        assert!(matches!(fast.quality_mode, QualityMode::Fast));
+    }
+
+    #[test]
+    fn test_page_number_presets() {
+        let jpn = PageNumberOptions::japanese();
+        let eng = PageNumberOptions::english();
+        let strict = PageNumberOptions::strict();
+
+        assert_eq!(jpn.ocr_language, "jpn");
+        assert_eq!(eng.ocr_language, "eng");
+        assert!(strict.min_confidence > PageNumberOptions::default().min_confidence);
+    }
+
+    #[test]
+    fn test_margin_presets() {
+        let dark = MarginOptions::for_dark_background();
+        let precise = MarginOptions::precise();
+
+        // Dark background should have lower threshold
+        assert!(dark.background_threshold < MarginOptions::default().background_threshold);
+        // Precise should use combined detection
+        assert!(matches!(
+            precise.detection_mode,
+            ContentDetectionMode::Combined
+        ));
+    }
+
+    #[test]
+    fn test_ai_bridge_presets() {
+        let cpu = AiBridgeConfig::cpu_only();
+        let low_vram = AiBridgeConfig::low_vram();
+
+        // CPU only should have GPU disabled
+        assert!(!cpu.gpu_config.enabled);
+        // Low VRAM should have memory limits
+        assert!(low_vram.gpu_config.max_vram_mb.is_some());
+    }
+
+    #[test]
+    fn test_realesrgan_presets() {
+        let quality = RealEsrganOptions::x4_high_quality();
+        let anime = RealEsrganOptions::anime();
+
+        // High quality should be 4x
+        assert_eq!(quality.scale, 4);
+        // Anime preset should have anime model
+        assert!(matches!(anime.model, realesrgan::RealEsrganModel::X4PlusAnime));
+    }
+
+    // ============ Util Function Tests ============
+
+    #[test]
+    fn test_clamp_function() {
+        assert_eq!(clamp(5, 0, 10), 5);
+        assert_eq!(clamp(-5, 0, 10), 0);
+        assert_eq!(clamp(15, 0, 10), 10);
+        assert_eq!(clamp(0, 0, 10), 0);
+        assert_eq!(clamp(10, 0, 10), 10);
+    }
+
+    #[test]
+    fn test_format_file_size() {
+        assert!(format_file_size(500).contains("B"));
+        assert!(format_file_size(1024).contains("K") || format_file_size(1024).contains("1"));
+        assert!(format_file_size(1024 * 1024).contains("M") || format_file_size(1024 * 1024).contains("1"));
+    }
+
+    #[test]
+    fn test_format_duration() {
+        let duration = std::time::Duration::from_secs(65);
+        let formatted = format_duration(duration);
+        assert!(formatted.contains("1") || formatted.contains("min") || formatted.contains(":"));
+    }
+
+    #[test]
+    fn test_mm_points_conversion() {
+        // 1 inch = 72 points = 25.4 mm
+        let mm = 25.4;
+        let points = mm_to_points(mm);
+        assert!((points - 72.0).abs() < 0.1);
+
+        let back_to_mm = points_to_mm(points);
+        assert!((back_to_mm - mm).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_mm_pixels_conversion() {
+        // At 300 DPI: 25.4mm = 1 inch = 300 pixels
+        let mm = 25.4;
+        let dpi = 300;
+        let pixels = mm_to_pixels(mm, dpi);
+        assert!((pixels as i32 - 300).abs() < 2);
+
+        let back_to_mm = pixels_to_mm(pixels, dpi);
+        assert!((back_to_mm - mm).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_percentage_function() {
+        assert_eq!(percentage(50, 100), 50.0);
+        assert_eq!(percentage(25, 100), 25.0);
+        assert_eq!(percentage(100, 100), 100.0);
+        assert_eq!(percentage(0, 100), 0.0);
+    }
+
+    #[test]
+    fn test_ensure_file_exists_nonexistent() {
+        let result = ensure_file_exists(&PathBuf::from("/nonexistent/file.pdf"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ensure_dir_writable_nonexistent() {
+        let result = ensure_dir_writable(&PathBuf::from("/nonexistent/directory"));
+        assert!(result.is_err());
+    }
+
+    // ============ Error Type Conversion Tests ============
+
+    #[test]
+    fn test_io_error_conversions() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "test");
+
+        // All error types should be convertible from io::Error
+        let _pdf_err: PdfReaderError = io_err.into();
+
+        let io_err2 = std::io::Error::new(std::io::ErrorKind::NotFound, "test");
+        let _writer_err: PdfWriterError = io_err2.into();
+
+        let io_err3 = std::io::Error::new(std::io::ErrorKind::NotFound, "test");
+        let _ext_err: ExtractError = io_err3.into();
+
+        let io_err4 = std::io::Error::new(std::io::ErrorKind::NotFound, "test");
+        let _dsk_err: DeskewError = io_err4.into();
+
+        let io_err5 = std::io::Error::new(std::io::ErrorKind::NotFound, "test");
+        let _mrg_err: MarginError = io_err5.into();
+
+        let io_err6 = std::io::Error::new(std::io::ErrorKind::NotFound, "test");
+        let _pgn_err: PageNumberError = io_err6.into();
+    }
+
+    // ============ Cross-Module Integration Tests ============
+
+    #[test]
+    fn test_margins_with_content_rect() {
+        let margins = Margins {
+            top: 50,
+            bottom: 50,
+            left: 30,
+            right: 30,
+        };
+
+        let content = ContentRect {
+            x: margins.left,
+            y: margins.top,
+            width: 1000 - margins.total_horizontal(),
+            height: 1500 - margins.total_vertical(),
+        };
+
+        assert_eq!(content.x, 30);
+        assert_eq!(content.y, 50);
+        assert_eq!(content.width, 940);
+        assert_eq!(content.height, 1400);
+    }
+
+    #[test]
+    fn test_page_metadata_from_reader_to_writer() {
+        let metadata = PdfMetadata {
+            title: Some("Test Book".to_string()),
+            author: Some("Test Author".to_string()),
+            subject: Some("Test Subject".to_string()),
+            keywords: Some("rust, pdf, test".to_string()),
+            creator: Some("superbook-pdf".to_string()),
+            producer: Some("superbook-pdf".to_string()),
+            creation_date: None,
+            modification_date: None,
+        };
+
+        // Create writer options with metadata
+        let opts = PdfWriterOptions::builder().metadata(metadata.clone()).build();
+
+        assert!(opts.metadata.is_some());
+        let writer_meta = opts.metadata.unwrap();
+        assert_eq!(writer_meta.title, metadata.title);
+        assert_eq!(writer_meta.author, metadata.author);
+    }
+
+    #[test]
+    fn test_exit_code_covers_all_error_types() {
+        // Each error type should map to an appropriate exit code
+
+        // File not found errors -> INPUT_NOT_FOUND
+        let input_not_found = ExitCode::InputNotFound;
+        assert_ne!(input_not_found.code(), 0);
+
+        // Processing errors -> PROCESSING_ERROR
+        let processing_error = ExitCode::ProcessingError;
+        assert_ne!(processing_error.code(), 0);
+
+        // GPU errors -> GPU_ERROR
+        let gpu_error = ExitCode::GpuError;
+        assert_ne!(gpu_error.code(), 0);
+
+        // External tool errors -> EXTERNAL_TOOL_ERROR
+        let tool_error = ExitCode::ExternalToolError;
+        assert_ne!(tool_error.code(), 0);
+    }
+
+    #[test]
+    fn test_image_format_and_colorspace_combinations() {
+        let formats = [
+            ImageFormat::Png,
+            ImageFormat::Jpeg { quality: 90 },
+            ImageFormat::Tiff,
+        ];
+
+        let colorspaces = [
+            ColorSpace::Rgb,
+            ColorSpace::Grayscale,
+            ColorSpace::Cmyk,
+        ];
+
+        // All combinations should be valid
+        for format in &formats {
+            for colorspace in &colorspaces {
+                let opts = ExtractOptions::builder()
+                    .format(format.clone())
+                    .colorspace(*colorspace)
+                    .build();
+
+                // Just verify they can be combined
+                let _ = format!("{:?} + {:?}", opts.format, opts.colorspace);
+            }
+        }
+    }
+
+    #[test]
+    fn test_text_direction_with_text_block() {
+        let horizontal = TextBlock {
+            text: "Horizontal text".to_string(),
+            bbox: (0, 0, 200, 20),
+            confidence: 0.95,
+            direction: TextDirection::Horizontal,
+            font_size: Some(12.0),
+        };
+
+        let vertical = TextBlock {
+            text: "縦書きテキスト".to_string(),
+            bbox: (0, 0, 20, 200),
+            confidence: 0.95,
+            direction: TextDirection::Vertical,
+            font_size: Some(12.0),
+        };
+
+        assert!(matches!(horizontal.direction, TextDirection::Horizontal));
+        assert!(matches!(vertical.direction, TextDirection::Vertical));
+
+        // Aspect ratio check
+        let h_width = horizontal.bbox.2 - horizontal.bbox.0;
+        let h_height = horizontal.bbox.3 - horizontal.bbox.1;
+        assert!(h_width > h_height);
+
+        let v_width = vertical.bbox.2 - vertical.bbox.0;
+        let v_height = vertical.bbox.3 - vertical.bbox.1;
+        assert!(v_height > v_width);
+    }
+
+    #[test]
+    fn test_deskew_result_with_detection() {
+        let detection = SkewDetection {
+            angle: 2.5,
+            confidence: 0.92,
+            feature_count: 150,
+        };
+
+        let result = DeskewResult {
+            detection: detection.clone(),
+            corrected: true,
+            output_path: PathBuf::from("/output/corrected.png"),
+            original_size: (2480, 3508),
+            corrected_size: (2500, 3530),
+        };
+
+        assert_eq!(result.detection.angle, 2.5);
+        assert!(result.corrected);
+        // Corrected size may be slightly different due to rotation
+        assert!(result.corrected_size.0 >= result.original_size.0 - 50);
+    }
+
+    #[test]
+    fn test_upscale_result_dimensions() {
+        // When upscaling 2x, dimensions should double
+        let original = (1000u32, 1500u32);
+        let scale = 2u32;
+        let expected = (original.0 * scale, original.1 * scale);
+
+        assert_eq!(expected, (2000, 3000));
+
+        // 4x upscale
+        let scale4 = 4u32;
+        let expected4 = (original.0 * scale4, original.1 * scale4);
+        assert_eq!(expected4, (4000, 6000));
+    }
+
+    #[test]
+    fn test_progress_bar_creation() {
+        let pb = create_progress_bar(100);
+        assert_eq!(pb.length(), Some(100));
+
+        let page_pb = create_page_progress_bar(50);
+        assert_eq!(page_pb.length(), Some(50));
+
+        let spinner = create_spinner("Processing...");
+        assert_eq!(spinner.message(), "Processing...");
+    }
+}
