@@ -453,6 +453,7 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    // TC-EXT-009: 存在しないPDFエラー
     #[test]
     fn test_nonexistent_pdf_error() {
         let temp_dir = tempdir().unwrap();
@@ -466,6 +467,7 @@ mod tests {
         assert!(matches!(result, Err(ExtractError::PdfNotFound(_))));
     }
 
+    // TC-EXT-003: DPI設定
     #[test]
     fn test_default_options() {
         let opts = ExtractOptions::default();
@@ -554,6 +556,7 @@ mod tests {
     // Note: The following tests require ImageMagick and actual PDF fixtures
     // They are marked with #[ignore] until fixtures are available
 
+    // TC-EXT-001: 単一ページ抽出
     #[test]
     #[ignore = "requires external tool"]
     fn test_extract_single_page() {
@@ -574,6 +577,7 @@ mod tests {
         assert!(result.height > 0);
     }
 
+    // TC-EXT-002: 全ページ抽出
     #[test]
     #[ignore = "requires external tool"]
     fn test_extract_all_pages() {
@@ -593,6 +597,7 @@ mod tests {
         }
     }
 
+    // TC-EXT-003: DPI設定（詳細テスト）
     #[test]
     #[ignore = "requires external tool"]
     fn test_dpi_setting() {
@@ -629,6 +634,7 @@ mod tests {
         assert!(result_300.height > result_72.height * 3);
     }
 
+    // TC-EXT-004: JPEG出力
     #[test]
     #[ignore = "requires external tool"]
     fn test_jpeg_output() {
@@ -653,6 +659,7 @@ mod tests {
         assert_eq!(&bytes[0..2], &[0xFF, 0xD8]);
     }
 
+    // TC-EXT-005: グレースケール変換
     #[test]
     #[ignore = "requires external tool"]
     fn test_grayscale_extraction() {

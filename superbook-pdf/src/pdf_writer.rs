@@ -456,6 +456,7 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    // TC-PDW-003: 空の画像リストエラー
     #[test]
     fn test_empty_images_error() {
         let temp_dir = tempdir().unwrap();
@@ -466,6 +467,7 @@ mod tests {
         assert!(matches!(result, Err(PdfWriterError::NoImages)));
     }
 
+    // TC-PDW-004: 存在しない画像エラー
     #[test]
     fn test_nonexistent_image_error() {
         let temp_dir = tempdir().unwrap();
@@ -493,6 +495,7 @@ mod tests {
 
     // Image fixture tests
 
+    // TC-PDW-001: 単一画像からPDF生成
     #[test]
     fn test_single_image_to_pdf() {
         let temp_dir = tempdir().unwrap();
@@ -506,6 +509,7 @@ mod tests {
         assert!(output.exists());
     }
 
+    // TC-PDW-002: 複数画像からPDF生成
     #[test]
     fn test_multiple_images_to_pdf() {
         let temp_dir = tempdir().unwrap();
@@ -522,6 +526,7 @@ mod tests {
         assert_eq!(doc.get_pages().len(), 10);
     }
 
+    // TC-PDW-005: メタデータ設定
     #[test]
     fn test_metadata_setting() {
         let temp_dir = tempdir().unwrap();
@@ -543,6 +548,7 @@ mod tests {
         assert!(output.exists());
     }
 
+    // TC-PDW-006: JPEG品質設定
     #[test]
     fn test_jpeg_quality() {
         let temp_dir = tempdir().unwrap();
