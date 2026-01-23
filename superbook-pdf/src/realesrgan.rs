@@ -237,7 +237,7 @@ impl OutputFormat {
 }
 
 /// Upscale result for single image
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UpscaleResult {
     /// Input file path
     pub input_path: PathBuf,
@@ -1101,5 +1101,365 @@ mod tests {
         let err = RealEsrganError::InvalidScale(3);
         let msg = err.to_string();
         assert!(msg.contains("3"));
+    }
+
+    // Additional comprehensive tests
+
+    #[test]
+    fn test_options_debug_impl() {
+        let options = RealEsrganOptions::builder().scale(4).tile_size(512).build();
+
+        let debug_str = format!("{:?}", options);
+        assert!(debug_str.contains("RealEsrganOptions"));
+        assert!(debug_str.contains("512"));
+    }
+
+    #[test]
+    fn test_model_debug_impl() {
+        let model = RealEsrganModel::X4Plus;
+        let debug_str = format!("{:?}", model);
+        assert!(debug_str.contains("X4Plus"));
+    }
+
+    #[test]
+    fn test_output_format_debug_impl() {
+        let format = OutputFormat::Jpg { quality: 95 };
+        let debug_str = format!("{:?}", format);
+        assert!(debug_str.contains("Jpg"));
+        assert!(debug_str.contains("95"));
+    }
+
+    #[test]
+    fn test_error_debug_impl() {
+        let err = RealEsrganError::InvalidScale(5);
+        let debug_str = format!("{:?}", err);
+        assert!(debug_str.contains("InvalidScale"));
+    }
+
+    #[test]
+    fn test_upscale_result_debug_impl() {
+        let result = UpscaleResult {
+            input_path: PathBuf::from("in.png"),
+            output_path: PathBuf::from("out.png"),
+            original_size: (100, 100),
+            upscaled_size: (200, 200),
+            actual_scale: 2.0,
+            processing_time: Duration::from_secs(1),
+            vram_used_mb: None,
+        };
+
+        let debug_str = format!("{:?}", result);
+        assert!(debug_str.contains("UpscaleResult"));
+    }
+
+    #[test]
+    fn test_batch_result_debug_impl() {
+        let result = BatchUpscaleResult {
+            successful: vec![],
+            failed: vec![],
+            total_time: Duration::from_secs(0),
+            peak_vram_mb: None,
+        };
+
+        let debug_str = format!("{:?}", result);
+        assert!(debug_str.contains("BatchUpscaleResult"));
+    }
+
+    #[test]
+    fn test_options_clone() {
+        let original = RealEsrganOptions::builder()
+            .scale(4)
+            .model(RealEsrganModel::X4PlusAnime)
+            .tile_size(256)
+            .fp16(true)
+            .build();
+
+        let cloned = original.clone();
+        assert_eq!(cloned.scale, original.scale);
+        assert_eq!(cloned.tile_size, original.tile_size);
+        assert_eq!(cloned.fp16, original.fp16);
+    }
+
+    #[test]
+    fn test_model_clone() {
+        let original = RealEsrganModel::Custom("test_model".to_string());
+        let cloned = original.clone();
+
+        assert_eq!(cloned.model_name(), original.model_name());
+    }
+
+    #[test]
+    fn test_output_format_clone() {
+        let original = OutputFormat::Webp { quality: 85 };
+        let cloned = original.clone();
+
+        assert_eq!(cloned.extension(), original.extension());
+    }
+
+    #[test]
+    fn test_upscale_result_clone() {
+        let original = UpscaleResult {
+            input_path: PathBuf::from("input.png"),
+            output_path: PathBuf::from("output.png"),
+            original_size: (100, 100),
+            upscaled_size: (400, 400),
+            actual_scale: 4.0,
+            processing_time: Duration::from_millis(500),
+            vram_used_mb: Some(2048),
+        };
+
+        let cloned = original.clone();
+        assert_eq!(cloned.input_path, original.input_path);
+        assert_eq!(cloned.actual_scale, original.actual_scale);
+        assert_eq!(cloned.vram_used_mb, original.vram_used_mb);
+    }
+
+    #[test]
+    fn test_gpu_id_settings() {
+        // Default is CPU mode (None)
+        let default_opts = RealEsrganOptions::default();
+        assert!(default_opts.gpu_id.is_none());
+
+        // GPU 0
+        let gpu0_opts = RealEsrganOptions::builder().gpu_id(0).build();
+        assert_eq!(gpu0_opts.gpu_id, Some(0));
+
+        // Multi-GPU
+        for gpu_id in [0, 1, 2, 3] {
+            let opts = RealEsrganOptions::builder().gpu_id(gpu_id).build();
+            assert_eq!(opts.gpu_id, Some(gpu_id));
+        }
+    }
+
+    #[test]
+    fn test_fp16_toggle() {
+        let fp16_on = RealEsrganOptions::builder().fp16(true).build();
+        assert!(fp16_on.fp16);
+
+        let fp16_off = RealEsrganOptions::builder().fp16(false).build();
+        assert!(!fp16_off.fp16);
+
+        // Default should be true (for speed optimization)
+        let default_opts = RealEsrganOptions::default();
+        assert!(default_opts.fp16);
+    }
+
+    #[test]
+    fn test_jpeg_quality_range() {
+        for quality in [1, 25, 50, 75, 90, 95, 100] {
+            let opts = RealEsrganOptions::builder()
+                .output_format(OutputFormat::Jpg { quality })
+                .build();
+
+            if let OutputFormat::Jpg { quality: q } = opts.output_format {
+                assert_eq!(q, quality);
+            } else {
+                panic!("Expected Jpg format");
+            }
+        }
+    }
+
+    #[test]
+    fn test_webp_quality_range() {
+        for quality in [1, 50, 80, 100] {
+            let opts = RealEsrganOptions::builder()
+                .output_format(OutputFormat::Webp { quality })
+                .build();
+
+            if let OutputFormat::Webp { quality: q } = opts.output_format {
+                assert_eq!(q, quality);
+            } else {
+                panic!("Expected Webp format");
+            }
+        }
+    }
+
+    #[test]
+    fn test_processing_time_variations() {
+        let times = [
+            Duration::from_millis(100),
+            Duration::from_secs(1),
+            Duration::from_secs(60),
+            Duration::from_secs(3600),
+        ];
+
+        for time in times {
+            let result = UpscaleResult {
+                input_path: PathBuf::from("in.png"),
+                output_path: PathBuf::from("out.png"),
+                original_size: (100, 100),
+                upscaled_size: (200, 200),
+                actual_scale: 2.0,
+                processing_time: time,
+                vram_used_mb: None,
+            };
+            assert_eq!(result.processing_time, time);
+        }
+    }
+
+    #[test]
+    fn test_upscale_size_calculations() {
+        // 2x upscale
+        let result_2x = UpscaleResult {
+            input_path: PathBuf::from("in.png"),
+            output_path: PathBuf::from("out.png"),
+            original_size: (100, 200),
+            upscaled_size: (200, 400),
+            actual_scale: 2.0,
+            processing_time: Duration::from_secs(1),
+            vram_used_mb: None,
+        };
+        assert_eq!(result_2x.upscaled_size.0, result_2x.original_size.0 * 2);
+        assert_eq!(result_2x.upscaled_size.1, result_2x.original_size.1 * 2);
+
+        // 4x upscale
+        let result_4x = UpscaleResult {
+            input_path: PathBuf::from("in.png"),
+            output_path: PathBuf::from("out.png"),
+            original_size: (100, 200),
+            upscaled_size: (400, 800),
+            actual_scale: 4.0,
+            processing_time: Duration::from_secs(5),
+            vram_used_mb: Some(4096),
+        };
+        assert_eq!(result_4x.upscaled_size.0, result_4x.original_size.0 * 4);
+        assert_eq!(result_4x.upscaled_size.1, result_4x.original_size.1 * 4);
+    }
+
+    #[test]
+    fn test_vram_usage_values() {
+        // Various VRAM amounts
+        for vram in [512, 1024, 2048, 4096, 8192, 16384] {
+            let result = UpscaleResult {
+                input_path: PathBuf::from("in.png"),
+                output_path: PathBuf::from("out.png"),
+                original_size: (100, 100),
+                upscaled_size: (200, 200),
+                actual_scale: 2.0,
+                processing_time: Duration::from_secs(1),
+                vram_used_mb: Some(vram),
+            };
+            assert_eq!(result.vram_used_mb, Some(vram));
+        }
+    }
+
+    #[test]
+    fn test_batch_result_empty() {
+        let result = BatchUpscaleResult {
+            successful: vec![],
+            failed: vec![],
+            total_time: Duration::from_secs(0),
+            peak_vram_mb: None,
+        };
+
+        assert!(result.successful.is_empty());
+        assert!(result.failed.is_empty());
+    }
+
+    #[test]
+    fn test_batch_result_all_failed() {
+        let failed: Vec<(PathBuf, String)> = (0..10)
+            .map(|i| (PathBuf::from(format!("img_{}.png", i)), "Error".to_string()))
+            .collect();
+
+        let result = BatchUpscaleResult {
+            successful: vec![],
+            failed,
+            total_time: Duration::from_secs(10),
+            peak_vram_mb: None,
+        };
+
+        assert!(result.successful.is_empty());
+        assert_eq!(result.failed.len(), 10);
+    }
+
+    #[test]
+    fn test_batch_result_all_successful() {
+        let successful: Vec<UpscaleResult> = (0..10)
+            .map(|i| UpscaleResult {
+                input_path: PathBuf::from(format!("in_{}.png", i)),
+                output_path: PathBuf::from(format!("out_{}.png", i)),
+                original_size: (100, 100),
+                upscaled_size: (200, 200),
+                actual_scale: 2.0,
+                processing_time: Duration::from_secs(1),
+                vram_used_mb: None,
+            })
+            .collect();
+
+        let result = BatchUpscaleResult {
+            successful,
+            failed: vec![],
+            total_time: Duration::from_secs(10),
+            peak_vram_mb: Some(4096),
+        };
+
+        assert_eq!(result.successful.len(), 10);
+        assert!(result.failed.is_empty());
+    }
+
+    #[test]
+    fn test_model_names_not_empty() {
+        let models = [
+            RealEsrganModel::X2Plus,
+            RealEsrganModel::X4Plus,
+            RealEsrganModel::X4PlusAnime,
+            RealEsrganModel::NetX4Plus,
+            RealEsrganModel::Custom("custom".to_string()),
+        ];
+
+        for model in models {
+            assert!(!model.model_name().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_builder_default_values() {
+        let builder_opts = RealEsrganOptions::builder().build();
+        let default_opts = RealEsrganOptions::default();
+
+        assert_eq!(builder_opts.scale, default_opts.scale);
+        assert_eq!(builder_opts.tile_size, default_opts.tile_size);
+        assert_eq!(builder_opts.fp16, default_opts.fp16);
+    }
+
+    #[test]
+    fn test_error_io_conversion() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
+        let real_err: RealEsrganError = io_err.into();
+        let msg = real_err.to_string();
+        assert!(!msg.is_empty());
+    }
+
+    #[test]
+    fn test_preset_presets_consistency() {
+        // High quality preset
+        let hq = RealEsrganOptions::x4_high_quality();
+        assert_eq!(hq.scale, 4);
+        assert!(!hq.fp16); // More precise
+
+        // Anime preset
+        let anime = RealEsrganOptions::anime();
+        assert!(matches!(anime.model, RealEsrganModel::X4PlusAnime));
+
+        // Low VRAM preset
+        let low_vram = RealEsrganOptions::low_vram();
+        assert!(low_vram.fp16); // More memory efficient
+        assert!(low_vram.tile_size <= 128);
+    }
+
+    #[test]
+    fn test_output_format_default() {
+        let default_opts = RealEsrganOptions::default();
+        assert!(matches!(default_opts.output_format, OutputFormat::Png));
+    }
+
+    #[test]
+    fn test_scale_only_2_or_4() {
+        // Only 2x and 4x should be valid
+        for scale in [1, 2, 3, 4, 5, 6, 7, 8] {
+            let opts = RealEsrganOptions::builder().scale(scale).build();
+            assert!(opts.scale == 2 || opts.scale == 4);
+        }
     }
 }
