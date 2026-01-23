@@ -2102,4 +2102,252 @@ mod tests {
         let received = handle.join().unwrap();
         assert_eq!(received.confidence, 0.95);
     }
+
+    #[test]
+    fn test_all_types_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<MarginOptions>();
+        assert_send_sync::<MarginOptionsBuilder>();
+        assert_send_sync::<ContentDetectionMode>();
+        assert_send_sync::<Margins>();
+        assert_send_sync::<ContentRect>();
+        assert_send_sync::<MarginDetection>();
+        assert_send_sync::<UnifiedMargins>();
+        assert_send_sync::<TrimResult>();
+        assert_send_sync::<MarginError>();
+    }
+
+    #[test]
+    fn test_concurrent_preset_creation() {
+        use std::thread;
+
+        let handles: Vec<_> = (0..6)
+            .map(|i| {
+                thread::spawn(move || match i % 3 {
+                    0 => MarginOptions::default().background_threshold,
+                    1 => MarginOptions::for_dark_background().background_threshold,
+                    2 => MarginOptions::precise().background_threshold,
+                    _ => unreachable!(),
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            let threshold = handle.join().unwrap();
+            assert!(threshold <= 255);
+        }
+    }
+
+    #[test]
+    fn test_error_thread_transfer() {
+        use std::thread;
+
+        let err = MarginError::NoContentDetected;
+        let handle = thread::spawn(move || err.to_string());
+
+        let msg = handle.join().unwrap();
+        assert!(msg.contains("content"));
+    }
+
+    #[test]
+    fn test_concurrent_content_detection_modes() {
+        use std::thread;
+
+        let modes = [
+            ContentDetectionMode::BackgroundColor,
+            ContentDetectionMode::EdgeDetection,
+            ContentDetectionMode::Histogram,
+            ContentDetectionMode::Combined,
+        ];
+
+        let handles: Vec<_> = modes
+            .into_iter()
+            .map(|mode| thread::spawn(move || format!("{:?}", mode)))
+            .collect();
+
+        for handle in handles {
+            let debug = handle.join().unwrap();
+            assert!(!debug.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_parallel_margin_detection_creation() {
+        use std::thread;
+
+        let handles: Vec<_> = (0..10)
+            .map(|i| {
+                thread::spawn(move || MarginDetection {
+                    margins: Margins::uniform(10 + i as u32),
+                    image_size: (1000 + i as u32 * 10, 800 + i as u32 * 10),
+                    content_rect: ContentRect {
+                        x: 10 + i as u32,
+                        y: 10 + i as u32,
+                        width: 980,
+                        height: 780,
+                    },
+                    confidence: 0.9 + i as f64 * 0.01,
+                })
+            })
+            .collect();
+
+        let results: Vec<MarginDetection> =
+            handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        assert_eq!(results.len(), 10);
+        for (i, detection) in results.iter().enumerate() {
+            assert_eq!(detection.margins.top, 10 + i as u32);
+        }
+    }
+
+    #[test]
+    fn test_unified_margins_thread_transfer() {
+        use std::thread;
+
+        let detection = MarginDetection {
+            margins: Margins::uniform(30),
+            image_size: (800, 600),
+            content_rect: ContentRect {
+                x: 30,
+                y: 30,
+                width: 740,
+                height: 540,
+            },
+            confidence: 0.88,
+        };
+
+        let unified = UnifiedMargins {
+            margins: Margins::uniform(25),
+            page_detections: vec![detection],
+            unified_size: (750, 550),
+        };
+
+        let handle = thread::spawn(move || {
+            assert_eq!(unified.margins.top, 25);
+            assert_eq!(unified.page_detections.len(), 1);
+            unified.unified_size
+        });
+
+        let size = handle.join().unwrap();
+        assert_eq!(size, (750, 550));
+    }
+
+    #[test]
+    fn test_trim_result_thread_transfer() {
+        use std::thread;
+
+        let result = TrimResult {
+            input_path: PathBuf::from("/input/test.png"),
+            output_path: PathBuf::from("/output/test.png"),
+            original_size: (1000, 800),
+            trimmed_size: (900, 700),
+            margins_applied: Margins::uniform(50),
+        };
+
+        let handle = thread::spawn(move || {
+            assert_eq!(result.original_size, (1000, 800));
+            result.trimmed_size
+        });
+
+        let size = handle.join().unwrap();
+        assert_eq!(size, (900, 700));
+    }
+
+    #[test]
+    fn test_concurrent_options_building() {
+        use std::thread;
+
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                thread::spawn(move || {
+                    let opts = MarginOptions::builder()
+                        .background_threshold(200 + i as u8)
+                        .min_margin(5 + i as u32)
+                        .edge_sensitivity(0.1 * (i as f32 + 1.0))
+                        .build();
+                    (
+                        opts.background_threshold,
+                        opts.min_margin,
+                        opts.edge_sensitivity,
+                    )
+                })
+            })
+            .collect();
+
+        for (i, handle) in handles.into_iter().enumerate() {
+            let (threshold, min_margin, sensitivity) = handle.join().unwrap();
+            assert_eq!(threshold, 200 + i as u8);
+            assert_eq!(min_margin, 5 + i as u32);
+            // Note: sensitivity is clamped to 0.0-1.0
+            assert!(sensitivity >= 0.0 && sensitivity <= 1.0);
+        }
+    }
+
+    #[test]
+    fn test_content_rect_thread_transfer() {
+        use std::thread;
+
+        let rect = ContentRect {
+            x: 100,
+            y: 200,
+            width: 500,
+            height: 600,
+        };
+
+        let handle = thread::spawn(move || (rect.x, rect.y, rect.width, rect.height));
+
+        let (x, y, w, h) = handle.join().unwrap();
+        assert_eq!(x, 100);
+        assert_eq!(y, 200);
+        assert_eq!(w, 500);
+        assert_eq!(h, 600);
+    }
+
+    #[test]
+    fn test_builder_debug_impl() {
+        let builder = MarginOptionsBuilder::default();
+        let debug_str = format!("{:?}", builder);
+        assert!(debug_str.contains("MarginOptionsBuilder"));
+    }
+
+    #[test]
+    fn test_builder_partial_config() {
+        let opts = MarginOptions::builder().background_threshold(180).build();
+
+        assert_eq!(opts.background_threshold, 180);
+        // Other fields should still be default
+        assert_eq!(opts.min_margin, DEFAULT_MIN_MARGIN);
+        assert_eq!(opts.edge_sensitivity, DEFAULT_EDGE_SENSITIVITY);
+    }
+
+    #[test]
+    fn test_float_precision_in_confidence() {
+        let confidence_values = [0.123456789, std::f64::consts::PI / 4.0, 0.333333333, 0.5];
+
+        for conf in confidence_values {
+            let detection = MarginDetection {
+                margins: Margins::uniform(10),
+                image_size: (100, 100),
+                content_rect: ContentRect {
+                    x: 10,
+                    y: 10,
+                    width: 80,
+                    height: 80,
+                },
+                confidence: conf,
+            };
+            assert!((detection.confidence - conf).abs() < f64::EPSILON);
+        }
+    }
+
+    #[test]
+    fn test_float_precision_in_edge_sensitivity() {
+        let sensitivity_values = [0.1, 0.25, 0.333, 0.5, 0.75, 0.9];
+
+        for sens in sensitivity_values {
+            let opts = MarginOptions::builder().edge_sensitivity(sens).build();
+            assert!((opts.edge_sensitivity - sens).abs() < f32::EPSILON);
+        }
+    }
 }

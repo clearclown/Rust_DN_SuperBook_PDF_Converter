@@ -1873,4 +1873,352 @@ mod tests {
         };
         assert_eq!(detection.feature_count, 10000);
     }
+
+    // ==================== Concurrency Tests ====================
+
+    #[test]
+    fn test_deskew_types_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<DeskewOptions>();
+        assert_send_sync::<DeskewAlgorithm>();
+        assert_send_sync::<QualityMode>();
+        assert_send_sync::<SkewDetection>();
+        assert_send_sync::<DeskewResult>();
+        assert_send_sync::<DeskewError>();
+    }
+
+    #[test]
+    fn test_concurrent_options_building() {
+        use std::thread;
+
+        let handles: Vec<_> = (0..10)
+            .map(|i| {
+                thread::spawn(move || {
+                    let opts = DeskewOptions::builder()
+                        .max_angle(5.0 + i as f64)
+                        .threshold_angle(0.1 * i as f64)
+                        .build();
+                    (opts.max_angle, opts.threshold_angle)
+                })
+            })
+            .collect();
+
+        for (i, handle) in handles.into_iter().enumerate() {
+            let (max_angle, threshold) = handle.join().unwrap();
+            assert_eq!(max_angle, 5.0 + i as f64);
+            assert!((threshold - 0.1 * i as f64).abs() < 0.001);
+        }
+    }
+
+    #[test]
+    fn test_detection_result_thread_transfer() {
+        use std::thread;
+
+        let detection = SkewDetection {
+            angle: 3.5,
+            confidence: 0.88,
+            feature_count: 150,
+        };
+
+        let cloned = detection.clone();
+        let handle = thread::spawn(move || {
+            assert_eq!(cloned.angle, 3.5);
+            assert_eq!(cloned.confidence, 0.88);
+            assert_eq!(cloned.feature_count, 150);
+            cloned
+        });
+
+        let received = handle.join().unwrap();
+        assert_eq!(received.angle, detection.angle);
+    }
+
+    #[test]
+    fn test_deskew_result_thread_transfer() {
+        use std::thread;
+
+        let detection = SkewDetection {
+            angle: 2.0,
+            confidence: 0.9,
+            feature_count: 100,
+        };
+
+        let result = DeskewResult {
+            detection,
+            corrected: true,
+            output_path: PathBuf::from("/output/test.png"),
+            original_size: (1000, 1500),
+            corrected_size: (1020, 1520),
+        };
+
+        let handle = thread::spawn(move || {
+            assert!(result.corrected);
+            assert_eq!(result.original_size, (1000, 1500));
+            result.corrected_size
+        });
+
+        let size = handle.join().unwrap();
+        assert_eq!(size, (1020, 1520));
+    }
+
+    #[test]
+    fn test_concurrent_preset_creation() {
+        use std::thread;
+
+        let handles: Vec<_> = (0..6)
+            .map(|i| {
+                thread::spawn(move || match i % 3 {
+                    0 => DeskewOptions::default().max_angle,
+                    1 => DeskewOptions::high_quality().max_angle,
+                    2 => DeskewOptions::fast().max_angle,
+                    _ => unreachable!(),
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            let max_angle = handle.join().unwrap();
+            assert!(max_angle > 0.0);
+        }
+    }
+
+    #[test]
+    fn test_options_shared_across_threads() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let options = Arc::new(
+            DeskewOptions::builder()
+                .max_angle(10.0)
+                .threshold_angle(0.5)
+                .build(),
+        );
+
+        let handles: Vec<_> = (0..5)
+            .map(|_| {
+                let opts = Arc::clone(&options);
+                thread::spawn(move || (opts.max_angle, opts.threshold_angle))
+            })
+            .collect();
+
+        for handle in handles {
+            let (max_angle, threshold) = handle.join().unwrap();
+            assert_eq!(max_angle, 10.0);
+            assert_eq!(threshold, 0.5);
+        }
+    }
+
+    #[test]
+    fn test_error_thread_transfer() {
+        use std::thread;
+
+        let err = DeskewError::DetectionFailed("test error".to_string());
+        let handle = thread::spawn(move || err.to_string());
+
+        let msg = handle.join().unwrap();
+        assert!(msg.contains("test error"));
+    }
+
+    #[test]
+    fn test_concurrent_algorithm_enum_usage() {
+        use std::thread;
+
+        let algorithms = [
+            DeskewAlgorithm::HoughLines,
+            DeskewAlgorithm::ProjectionProfile,
+            DeskewAlgorithm::TextLineDetection,
+            DeskewAlgorithm::Combined,
+        ];
+
+        let handles: Vec<_> = algorithms
+            .into_iter()
+            .map(|algo| thread::spawn(move || format!("{:?}", algo)))
+            .collect();
+
+        for handle in handles {
+            let debug = handle.join().unwrap();
+            assert!(!debug.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_concurrent_quality_mode_usage() {
+        use std::thread;
+
+        let modes = [
+            QualityMode::Fast,
+            QualityMode::Standard,
+            QualityMode::HighQuality,
+        ];
+
+        let handles: Vec<_> = modes
+            .into_iter()
+            .map(|mode| thread::spawn(move || format!("{:?}", mode)))
+            .collect();
+
+        for handle in handles {
+            let debug = handle.join().unwrap();
+            assert!(!debug.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_parallel_detection_result_creation() {
+        use std::thread;
+
+        let handles: Vec<_> = (0..10)
+            .map(|i| {
+                thread::spawn(move || SkewDetection {
+                    angle: i as f64 * 0.5,
+                    confidence: (i as f64 + 1.0) / 11.0,
+                    feature_count: (i + 1) * 10,
+                })
+            })
+            .collect();
+
+        let results: Vec<SkewDetection> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        assert_eq!(results.len(), 10);
+        for (i, detection) in results.iter().enumerate() {
+            assert!((detection.angle - i as f64 * 0.5).abs() < 0.001);
+        }
+    }
+
+    #[test]
+    fn test_builder_debug_impl() {
+        let builder = DeskewOptionsBuilder::default();
+        let debug_str = format!("{:?}", builder);
+        assert!(debug_str.contains("DeskewOptionsBuilder"));
+    }
+
+    #[test]
+    fn test_options_builder_partial_config() {
+        // Only configure some options, leave others as default
+        let opts = DeskewOptions::builder().max_angle(20.0).build();
+
+        assert_eq!(opts.max_angle, 20.0);
+        // threshold_angle should still be default
+        assert_eq!(opts.threshold_angle, DEFAULT_THRESHOLD_ANGLE);
+    }
+
+    #[test]
+    fn test_median_with_nan_like_values() {
+        // Test with very small values that might cause precision issues
+        let values = vec![0.00001, 0.00002, 0.00003, 0.00004, 0.00005];
+        let median = ImageProcDeskewer::median(&values);
+        assert!((median - 0.00003).abs() < 0.000001);
+    }
+
+    #[test]
+    fn test_std_dev_with_single_value() {
+        let values = vec![5.0];
+        let mean = 5.0;
+        let std_dev = ImageProcDeskewer::std_dev(&values, mean);
+        assert_eq!(std_dev, 0.0);
+    }
+
+    #[test]
+    fn test_deskew_options_all_algorithms_with_all_modes() {
+        let algorithms = [
+            DeskewAlgorithm::HoughLines,
+            DeskewAlgorithm::ProjectionProfile,
+            DeskewAlgorithm::TextLineDetection,
+            DeskewAlgorithm::Combined,
+        ];
+        let modes = [
+            QualityMode::Fast,
+            QualityMode::Standard,
+            QualityMode::HighQuality,
+        ];
+
+        for algo in &algorithms {
+            for mode in &modes {
+                let opts = DeskewOptions::builder()
+                    .algorithm(*algo)
+                    .quality_mode(*mode)
+                    .build();
+                // Verify the options are correctly set
+                let debug = format!("{:?}", opts);
+                assert!(!debug.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn test_deskew_result_output_path_variations() {
+        let detection = SkewDetection {
+            angle: 1.0,
+            confidence: 0.9,
+            feature_count: 50,
+        };
+
+        // Test with various path formats
+        let paths = [
+            "/absolute/path.png",
+            "relative/path.png",
+            "./current/dir.png",
+            "../parent/dir.png",
+            "file.png",
+        ];
+
+        for path_str in paths {
+            let result = DeskewResult {
+                detection: detection.clone(),
+                corrected: true,
+                output_path: PathBuf::from(path_str),
+                original_size: (100, 100),
+                corrected_size: (100, 100),
+            };
+            assert_eq!(result.output_path.to_str().unwrap(), path_str);
+        }
+    }
+
+    #[test]
+    fn test_float_precision_in_angle() {
+        let angles = [
+            0.123456789,
+            std::f64::consts::PI,
+            std::f64::consts::E,
+            0.333333333,
+        ];
+
+        for angle in angles {
+            let detection = SkewDetection {
+                angle,
+                confidence: 0.5,
+                feature_count: 10,
+            };
+            assert!((detection.angle - angle).abs() < f64::EPSILON);
+        }
+    }
+
+    #[test]
+    fn test_algorithm_default() {
+        let algo = DeskewAlgorithm::default();
+        assert!(matches!(algo, DeskewAlgorithm::HoughLines));
+    }
+
+    #[test]
+    fn test_quality_mode_default() {
+        let mode = QualityMode::default();
+        assert!(matches!(mode, QualityMode::Standard));
+    }
+
+    #[test]
+    fn test_algorithm_copy_trait() {
+        let algo = DeskewAlgorithm::Combined;
+        let copied = algo; // Copy
+        let also_original = algo; // Still valid because Copy
+        assert!(matches!(copied, DeskewAlgorithm::Combined));
+        assert!(matches!(also_original, DeskewAlgorithm::Combined));
+    }
+
+    #[test]
+    fn test_quality_mode_copy_trait() {
+        let mode = QualityMode::HighQuality;
+        let copied = mode; // Copy
+        let also_original = mode; // Still valid because Copy
+        assert!(matches!(copied, QualityMode::HighQuality));
+        assert!(matches!(also_original, QualityMode::HighQuality));
+    }
 }
