@@ -826,4 +826,184 @@ mod tests {
         let options = PdfWriterOptions::builder().dpi(150).build();
         assert_eq!(options.dpi, 150);
     }
+
+    // TC-PDW-008: OCRレイヤー埋め込みテスト拡張
+    #[test]
+    fn test_ocr_layer_with_multiple_blocks() {
+        let layer = OcrLayer {
+            pages: vec![OcrPageText {
+                page_index: 0,
+                blocks: vec![
+                    TextBlock {
+                        x: 100.0,
+                        y: 700.0,
+                        width: 400.0,
+                        height: 20.0,
+                        text: "First line".to_string(),
+                        font_size: 12.0,
+                        vertical: false,
+                    },
+                    TextBlock {
+                        x: 100.0,
+                        y: 680.0,
+                        width: 300.0,
+                        height: 20.0,
+                        text: "Second line".to_string(),
+                        font_size: 12.0,
+                        vertical: false,
+                    },
+                ],
+            }],
+        };
+
+        let options = PdfWriterOptions::builder().ocr_layer(layer).build();
+
+        assert!(options.ocr_layer.is_some());
+        let ocr = options.ocr_layer.unwrap();
+        assert_eq!(ocr.pages.len(), 1);
+        assert_eq!(ocr.pages[0].blocks.len(), 2);
+    }
+
+    // TC-PDW-009: 縦書きOCR対応テスト
+    #[test]
+    fn test_vertical_text_block() {
+        let vertical_block = TextBlock {
+            x: 500.0,
+            y: 100.0,
+            width: 20.0,
+            height: 600.0,
+            text: "縦書きテスト".to_string(),
+            font_size: 12.0,
+            vertical: true,
+        };
+
+        assert!(vertical_block.vertical);
+        assert!(vertical_block.height > vertical_block.width);
+
+        let horizontal_block = TextBlock {
+            x: 100.0,
+            y: 700.0,
+            width: 400.0,
+            height: 20.0,
+            text: "横書きテスト".to_string(),
+            font_size: 12.0,
+            vertical: false,
+        };
+
+        assert!(!horizontal_block.vertical);
+        assert!(horizontal_block.width > horizontal_block.height);
+    }
+
+    // TC-PDW-010: 異なるサイズの画像処理テスト
+    #[test]
+    fn test_page_size_modes() {
+        let modes = [
+            PageSizeMode::FirstPage,
+            PageSizeMode::MaxSize,
+            PageSizeMode::Original,
+            PageSizeMode::Fixed {
+                width_pt: 595.0,
+                height_pt: 842.0,
+            },
+        ];
+
+        for mode in modes {
+            let options = PdfWriterOptions::builder().page_size_mode(mode).build();
+            // Verify mode is set correctly
+            match (mode, options.page_size_mode) {
+                (PageSizeMode::FirstPage, PageSizeMode::FirstPage) => {}
+                (PageSizeMode::MaxSize, PageSizeMode::MaxSize) => {}
+                (PageSizeMode::Original, PageSizeMode::Original) => {}
+                (
+                    PageSizeMode::Fixed {
+                        width_pt: w1,
+                        height_pt: h1,
+                    },
+                    PageSizeMode::Fixed {
+                        width_pt: w2,
+                        height_pt: h2,
+                    },
+                ) => {
+                    assert_eq!(w1, w2);
+                    assert_eq!(h1, h2);
+                }
+                _ => panic!("Page size mode mismatch"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_compression_types_in_builder() {
+        let compressions = [
+            ImageCompression::Jpeg,
+            ImageCompression::JpegLossless,
+            ImageCompression::Flate,
+            ImageCompression::None,
+        ];
+
+        for compression in compressions {
+            let options = PdfWriterOptions::builder().compression(compression).build();
+            match (compression, options.compression) {
+                (ImageCompression::Jpeg, ImageCompression::Jpeg) => {}
+                (ImageCompression::JpegLossless, ImageCompression::JpegLossless) => {}
+                (ImageCompression::Flate, ImageCompression::Flate) => {}
+                (ImageCompression::None, ImageCompression::None) => {}
+                _ => panic!("Compression type mismatch"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_metadata_all_fields() {
+        let metadata = PdfMetadata {
+            title: Some("Test Title".to_string()),
+            author: Some("Test Author".to_string()),
+            subject: Some("Test Subject".to_string()),
+            keywords: Some("keyword1, keyword2".to_string()),
+            creator: Some("Test Creator".to_string()),
+            producer: Some("superbook-pdf".to_string()),
+            creation_date: Some("2024-01-01".to_string()),
+            modification_date: Some("2024-01-02".to_string()),
+        };
+
+        assert_eq!(metadata.title, Some("Test Title".to_string()));
+        assert_eq!(metadata.author, Some("Test Author".to_string()));
+        assert_eq!(metadata.subject, Some("Test Subject".to_string()));
+        assert!(metadata.keywords.is_some());
+        assert!(metadata.keywords.as_ref().unwrap().contains("keyword1"));
+        assert_eq!(metadata.creator, Some("Test Creator".to_string()));
+        assert_eq!(metadata.producer, Some("superbook-pdf".to_string()));
+        assert!(metadata.creation_date.is_some());
+        assert!(metadata.modification_date.is_some());
+    }
+
+    #[test]
+    fn test_error_display_messages() {
+        let err = PdfWriterError::NoImages;
+        assert!(!err.to_string().is_empty());
+
+        let err = PdfWriterError::ImageNotFound(PathBuf::from("/path/to/image.png"));
+        assert!(err.to_string().contains("/path/to/image.png"));
+
+        let err = PdfWriterError::UnsupportedFormat("BMP".to_string());
+        assert!(err.to_string().contains("BMP"));
+
+        let err = PdfWriterError::GenerationError("PDF creation failed".to_string());
+        assert!(err.to_string().contains("PDF creation failed"));
+    }
+
+    #[test]
+    fn test_builder_chaining() {
+        let options = PdfWriterOptions::builder()
+            .dpi(300)
+            .jpeg_quality(90)
+            .compression(ImageCompression::Jpeg)
+            .page_size_mode(PageSizeMode::FirstPage)
+            .build();
+
+        assert_eq!(options.dpi, 300);
+        assert_eq!(options.jpeg_quality, 90);
+        assert!(matches!(options.compression, ImageCompression::Jpeg));
+        assert!(matches!(options.page_size_mode, PageSizeMode::FirstPage));
+    }
 }
