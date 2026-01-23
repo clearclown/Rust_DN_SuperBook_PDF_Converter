@@ -143,7 +143,7 @@ fn test_convert_empty_directory() {
 
 // Requires external tools (ImageMagick, etc.)
 #[test]
-#[ignore]
+#[ignore = "requires external tool"]
 fn test_convert_actual_pdf() {
     let temp_dir = TempDir::new().unwrap();
     let output_dir = temp_dir.path().join("output");

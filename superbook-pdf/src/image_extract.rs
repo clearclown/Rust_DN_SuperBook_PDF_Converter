@@ -502,7 +502,7 @@ mod tests {
     // They are marked with #[ignore] until fixtures are available
 
     #[test]
-    #[ignore]
+    #[ignore = "requires external tool"]
     fn test_extract_single_page() {
         let temp_dir = tempdir().unwrap();
         let output = temp_dir.path().join("page_0.png");
@@ -522,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires external tool"]
     fn test_extract_all_pages() {
         let temp_dir = tempdir().unwrap();
 
@@ -541,7 +541,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires external tool"]
     fn test_dpi_setting() {
         let temp_dir = tempdir().unwrap();
 
@@ -577,7 +577,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires external tool"]
     fn test_jpeg_output() {
         let temp_dir = tempdir().unwrap();
         let output = temp_dir.path().join("page_0.jpg");
@@ -601,7 +601,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires external tool"]
     fn test_grayscale_extraction() {
         let temp_dir = tempdir().unwrap();
         let output = temp_dir.path().join("gray.png");

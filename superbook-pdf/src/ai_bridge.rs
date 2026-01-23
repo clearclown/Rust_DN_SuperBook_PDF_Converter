@@ -584,7 +584,7 @@ mod tests {
     // They are marked with #[ignore] until environment is available
 
     #[test]
-    #[ignore]
+    #[ignore = "requires external tool"]
     fn test_bridge_initialization() {
         let config = AiBridgeConfig {
             venv_path: PathBuf::from("tests/fixtures/test_venv"),
@@ -596,7 +596,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires external tool"]
     fn test_check_gpu() {
         let config = AiBridgeConfig::default();
         let bridge = SubprocessBridge::new(config).unwrap();
@@ -615,7 +615,7 @@ mod tests {
 
     // TC-AIB-003: Tool availability check
     #[test]
-    #[ignore]
+    #[ignore = "requires external tool"]
     fn test_check_tool() {
         let config = AiBridgeConfig {
             venv_path: PathBuf::from("tests/fixtures/test_venv"),
@@ -634,7 +634,7 @@ mod tests {
 
     // TC-AIB-005: Task execution (success)
     #[test]
-    #[ignore]
+    #[ignore = "requires external tool"]
     fn test_execute_success() {
         let config = AiBridgeConfig {
             venv_path: PathBuf::from("tests/fixtures/test_venv"),
@@ -660,7 +660,7 @@ mod tests {
 
     // TC-AIB-006: Batch execution
     #[test]
-    #[ignore]
+    #[ignore = "requires external tool"]
     fn test_execute_batch() {
         let config = AiBridgeConfig {
             venv_path: PathBuf::from("tests/fixtures/test_venv"),
@@ -687,7 +687,7 @@ mod tests {
 
     // TC-AIB-007: Timeout handling
     #[test]
-    #[ignore]
+    #[ignore = "requires external tool"]
     fn test_timeout() {
         let config = AiBridgeConfig {
             venv_path: PathBuf::from("tests/fixtures/test_venv"),

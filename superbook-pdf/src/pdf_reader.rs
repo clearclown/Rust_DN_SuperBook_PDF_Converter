@@ -355,7 +355,7 @@ mod tests {
     // TC-PDR-009: Large PDF memory efficiency
     // Requires large_1000pages.pdf fixture and procfs dependency
     #[test]
-    #[ignore]
+    #[ignore = "requires external tool"]
     fn test_large_pdf_memory() {
         let doc = LopdfReader::new("tests/fixtures/large_1000pages.pdf").unwrap();
         assert_eq!(doc.info.page_count, 1000);

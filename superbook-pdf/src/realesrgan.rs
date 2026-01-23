@@ -668,7 +668,7 @@ mod tests {
     // They are marked with #[ignore] until environment is available
 
     #[test]
-    #[ignore]
+    #[ignore = "requires external tool"]
     fn test_input_not_found_error() {
         let config = crate::ai_bridge::AiBridgeConfig {
             venv_path: PathBuf::from("tests/fixtures/test_venv"),
@@ -687,7 +687,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires external tool"]
     fn test_single_image_upscale() {
         let config = crate::ai_bridge::AiBridgeConfig {
             venv_path: PathBuf::from("tests/fixtures/test_venv"),
