@@ -32,6 +32,28 @@ use image::{DynamicImage, GenericImageView, GrayImage, Rgba};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+// ============================================================
+// Constants
+// ============================================================
+
+/// Default maximum angle for deskew detection (degrees)
+const DEFAULT_MAX_ANGLE: f64 = 15.0;
+
+/// Default threshold angle - angles below this are not corrected (degrees)
+const DEFAULT_THRESHOLD_ANGLE: f64 = 0.1;
+
+/// Default background color (white) for filled areas after rotation
+const DEFAULT_BACKGROUND_COLOR: [u8; 3] = [255, 255, 255];
+
+/// Grayscale threshold for binarization in projection analysis
+const GRAYSCALE_THRESHOLD: u8 = 128;
+
+/// White pixel value for image processing
+const WHITE_PIXEL: u8 = 255;
+
+/// Fully opaque alpha value for RGBA images
+const ALPHA_OPAQUE: u8 = 255;
+
 /// Deskew error types
 #[derive(Debug, Error)]
 pub enum DeskewError {
@@ -72,9 +94,9 @@ impl Default for DeskewOptions {
     fn default() -> Self {
         Self {
             algorithm: DeskewAlgorithm::HoughLines,
-            max_angle: 15.0,
-            threshold_angle: 0.1,
-            background_color: [255, 255, 255],
+            max_angle: DEFAULT_MAX_ANGLE,
+            threshold_angle: DEFAULT_THRESHOLD_ANGLE,
+            background_color: DEFAULT_BACKGROUND_COLOR,
             quality_mode: QualityMode::Standard,
         }
     }
@@ -369,7 +391,7 @@ impl ImageProcDeskewer {
         let mut angles = Vec::new();
 
         // Simple line detection: scan rows and find runs of edge pixels
-        let threshold = 128u8;
+        let threshold = GRAYSCALE_THRESHOLD;
 
         for y in (0..height).step_by(10) {
             let mut runs = Vec::new();
@@ -445,7 +467,8 @@ impl ImageProcDeskewer {
 
                 if ry >= 0.0 && ry < height as f64 {
                     let pixel = gray.get_pixel(x, y).0[0];
-                    projection[ry as usize] += (255 - pixel) as i64;
+                    // Invert pixel value: dark pixels contribute more to projection
+                    projection[ry as usize] += (WHITE_PIXEL - pixel) as i64;
                 }
             }
         }
@@ -529,7 +552,7 @@ impl ImageProcDeskewer {
             options.background_color[0],
             options.background_color[1],
             options.background_color[2],
-            255,
+            ALPHA_OPAQUE,
         ]);
 
         let mut rotated = image::RgbaImage::new(new_width, new_height);

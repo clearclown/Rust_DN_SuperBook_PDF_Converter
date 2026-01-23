@@ -6,6 +6,28 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
 
+// ============================================================
+// Constants
+// ============================================================
+
+/// Standard DPI for document scanning
+const DEFAULT_DPI: u32 = 300;
+
+/// High quality DPI for archival purposes
+const HIGH_QUALITY_DPI: u32 = 600;
+
+/// Low DPI for fast previews
+const FAST_DPI: u32 = 150;
+
+/// Minimum allowed DPI
+const MIN_DPI: u32 = 72;
+
+/// Maximum allowed DPI
+const MAX_DPI: u32 = 1200;
+
+/// Default white background color
+const WHITE_BACKGROUND: [u8; 3] = [255, 255, 255];
+
 /// Image extraction error types
 #[derive(Debug, Error)]
 pub enum ExtractError {
@@ -63,10 +85,10 @@ impl std::fmt::Debug for ExtractOptions {
 impl Default for ExtractOptions {
     fn default() -> Self {
         Self {
-            dpi: 300,
+            dpi: DEFAULT_DPI,
             format: ImageFormat::Png,
             colorspace: ColorSpace::Rgb,
-            background: Some([255, 255, 255]), // White background
+            background: Some(WHITE_BACKGROUND),
             parallel: num_cpus::get(),
             progress_callback: None,
         }
@@ -82,7 +104,7 @@ impl ExtractOptions {
     /// Create options for high quality extraction
     pub fn high_quality() -> Self {
         Self {
-            dpi: 600,
+            dpi: HIGH_QUALITY_DPI,
             format: ImageFormat::Png,
             ..Default::default()
         }
@@ -91,7 +113,7 @@ impl ExtractOptions {
     /// Create options for fast extraction (lower quality)
     pub fn fast() -> Self {
         Self {
-            dpi: 150,
+            dpi: FAST_DPI,
             format: ImageFormat::Jpeg { quality: 80 },
             ..Default::default()
         }
@@ -113,9 +135,9 @@ pub struct ExtractOptionsBuilder {
 }
 
 impl ExtractOptionsBuilder {
-    /// Set output DPI (clamped to 72-1200)
+    /// Set output DPI (clamped to MIN_DPI-MAX_DPI)
     pub fn dpi(mut self, dpi: u32) -> Self {
-        self.options.dpi = dpi.clamp(72, 1200);
+        self.options.dpi = dpi.clamp(MIN_DPI, MAX_DPI);
         self
     }
 

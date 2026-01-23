@@ -33,6 +33,40 @@ use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+// ============================================================
+// Constants
+// ============================================================
+
+/// Default background threshold for white/light backgrounds (0-255)
+const DEFAULT_BACKGROUND_THRESHOLD: u8 = 250;
+
+/// Background threshold for dark/aged documents
+const DARK_BACKGROUND_THRESHOLD: u8 = 50;
+
+/// Default minimum margin in pixels
+const DEFAULT_MIN_MARGIN: u32 = 10;
+
+/// Default trim percentage
+const DEFAULT_TRIM_PERCENT: f32 = 0.5;
+
+/// Default edge detection sensitivity
+const DEFAULT_EDGE_SENSITIVITY: f32 = 0.5;
+
+/// High precision edge sensitivity
+const PRECISE_EDGE_SENSITIVITY: f32 = 0.8;
+
+/// Minimum clamp value for percentage
+const MIN_PERCENT: f32 = 0.0;
+
+/// Maximum clamp value for percentage
+const MAX_PERCENT: f32 = 100.0;
+
+/// Minimum sensitivity value
+const MIN_SENSITIVITY: f32 = 0.0;
+
+/// Maximum sensitivity value
+const MAX_SENSITIVITY: f32 = 1.0;
+
 /// Margin error types
 #[derive(Debug, Error)]
 pub enum MarginError {
@@ -69,10 +103,10 @@ pub struct MarginOptions {
 impl Default for MarginOptions {
     fn default() -> Self {
         Self {
-            background_threshold: 250,
-            min_margin: 10,
-            default_trim_percent: 0.5,
-            edge_sensitivity: 0.5,
+            background_threshold: DEFAULT_BACKGROUND_THRESHOLD,
+            min_margin: DEFAULT_MIN_MARGIN,
+            default_trim_percent: DEFAULT_TRIM_PERCENT,
+            edge_sensitivity: DEFAULT_EDGE_SENSITIVITY,
             detection_mode: ContentDetectionMode::BackgroundColor,
         }
     }
@@ -87,7 +121,7 @@ impl MarginOptions {
     /// Create options for dark backgrounds (e.g., scanned old books)
     pub fn for_dark_background() -> Self {
         Self {
-            background_threshold: 50,
+            background_threshold: DARK_BACKGROUND_THRESHOLD,
             detection_mode: ContentDetectionMode::EdgeDetection,
             ..Default::default()
         }
@@ -97,7 +131,7 @@ impl MarginOptions {
     pub fn precise() -> Self {
         Self {
             detection_mode: ContentDetectionMode::Combined,
-            edge_sensitivity: 0.8,
+            edge_sensitivity: PRECISE_EDGE_SENSITIVITY,
             ..Default::default()
         }
     }
@@ -124,13 +158,13 @@ impl MarginOptionsBuilder {
 
     /// Set default trim percentage
     pub fn default_trim_percent(mut self, percent: f32) -> Self {
-        self.options.default_trim_percent = percent.clamp(0.0, 100.0);
+        self.options.default_trim_percent = percent.clamp(MIN_PERCENT, MAX_PERCENT);
         self
     }
 
     /// Set edge detection sensitivity (0.0-1.0)
     pub fn edge_sensitivity(mut self, sensitivity: f32) -> Self {
-        self.options.edge_sensitivity = sensitivity.clamp(0.0, 1.0);
+        self.options.edge_sensitivity = sensitivity.clamp(MIN_SENSITIVITY, MAX_SENSITIVITY);
         self
     }
 
