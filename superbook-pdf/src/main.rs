@@ -854,6 +854,7 @@ fn run_info() -> Result<(), Box<dyn std::error::Error>> {
     println!();
     println!("External Tools:");
     check_tool("magick", "ImageMagick");
+    check_tool("pdftoppm", "Poppler (pdftoppm)");
     check_tool("gs", "Ghostscript");
     check_tool("tesseract", "Tesseract OCR");
 
