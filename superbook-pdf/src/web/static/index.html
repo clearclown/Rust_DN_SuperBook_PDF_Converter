@@ -129,6 +129,114 @@
             border-radius: 4px;
         }
 
+        /* Slider styling */
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .slider-container input[type="range"] {
+            flex: 1;
+            height: 6px;
+            -webkit-appearance: none;
+            background: #e0e0e0;
+            border-radius: 3px;
+            outline: none;
+        }
+
+        .slider-container input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #4a90d9;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .slider-value {
+            min-width: 60px;
+            text-align: right;
+            font-weight: 500;
+            color: #4a90d9;
+        }
+
+        /* Advanced options toggle */
+        .advanced-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 0;
+            border-top: 1px solid #eee;
+            margin-top: 16px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .advanced-toggle:hover {
+            color: #4a90d9;
+        }
+
+        .advanced-toggle .arrow {
+            transition: transform 0.3s;
+        }
+
+        .advanced-toggle.open .arrow {
+            transform: rotate(90deg);
+        }
+
+        .advanced-options {
+            display: none;
+            padding-top: 16px;
+        }
+
+        .advanced-options.open {
+            display: block;
+        }
+
+        /* Preview section */
+        .preview-section {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .preview-section.active {
+            display: block;
+        }
+
+        .preview-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 16px;
+            margin-top: 12px;
+        }
+
+        .preview-card {
+            background: #f9f9f9;
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .preview-card img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+        }
+
+        .preview-card .stage {
+            margin-top: 8px;
+            font-size: 0.85rem;
+            color: #666;
+        }
+
+        .preview-card .page-num {
+            font-weight: 500;
+            color: #333;
+        }
+
         /* Convert Button */
         .convert-btn {
             display: block;
@@ -275,11 +383,19 @@
         <!-- Options Section -->
         <div class="card">
             <h2 class="options-title">変換オプション</h2>
-            <div class="options-grid">
-                <div class="option-item">
-                    <label for="dpi">DPI:</label>
-                    <input type="number" id="dpi" value="300" min="72" max="600">
+
+            <!-- DPI Slider -->
+            <div class="option-item" style="margin-bottom: 16px;">
+                <label for="dpi-slider">出力DPI:</label>
+                <div class="slider-container">
+                    <input type="range" id="dpi-slider" min="150" max="600" value="300" step="50">
+                    <span class="slider-value" id="dpi-value">300 DPI</span>
                 </div>
+                <input type="hidden" id="dpi" value="300">
+            </div>
+
+            <!-- Basic Options -->
+            <div class="options-grid">
                 <div class="option-item">
                     <input type="checkbox" id="deskew" checked>
                     <label for="deskew">傾き補正</label>
@@ -292,12 +408,47 @@
                     <input type="checkbox" id="ocr">
                     <label for="ocr">OCR (日本語)</label>
                 </div>
-                <div class="option-item">
-                    <input type="checkbox" id="advanced">
-                    <label for="advanced">高度な処理</label>
+            </div>
+
+            <!-- Advanced Options Toggle -->
+            <div class="advanced-toggle" id="advanced-toggle">
+                <span class="arrow">▶</span>
+                <span>高度なオプション</span>
+            </div>
+
+            <!-- Advanced Options Panel -->
+            <div class="advanced-options" id="advanced-options">
+                <div class="options-grid">
+                    <div class="option-item" style="grid-column: 1 / -1;">
+                        <label for="margin-slider">マージントリム:</label>
+                        <div class="slider-container">
+                            <input type="range" id="margin-slider" min="0" max="5" value="0.5" step="0.5">
+                            <span class="slider-value" id="margin-value">0.5%</span>
+                        </div>
+                    </div>
+                    <div class="option-item">
+                        <input type="checkbox" id="color-correction">
+                        <label for="color-correction">色補正</label>
+                    </div>
+                    <div class="option-item">
+                        <input type="checkbox" id="offset-alignment">
+                        <label for="offset-alignment">オフセット整列</label>
+                    </div>
+                    <div class="option-item">
+                        <input type="checkbox" id="internal-resolution">
+                        <label for="internal-resolution">内部解像度正規化</label>
+                    </div>
                 </div>
             </div>
+            <input type="hidden" id="advanced" value="false">
+
             <button class="convert-btn" id="convert-btn" disabled>変換開始</button>
+        </div>
+
+        <!-- Preview Section -->
+        <div class="card preview-section" id="preview-section">
+            <h2 class="options-title">プレビュー</h2>
+            <div class="preview-grid" id="preview-grid"></div>
         </div>
 
         <!-- Progress Section -->
@@ -353,7 +504,101 @@
 
         let currentFile = null;
         let currentJobId = null;
-        let pollInterval = null;
+        let ws = null;
+
+        // DPI Slider
+        const dpiSlider = document.getElementById('dpi-slider');
+        const dpiValue = document.getElementById('dpi-value');
+        const dpiInput = document.getElementById('dpi');
+
+        dpiSlider.addEventListener('input', () => {
+            const val = dpiSlider.value;
+            dpiValue.textContent = val + ' DPI';
+            dpiInput.value = val;
+        });
+
+        // Margin Slider
+        const marginSlider = document.getElementById('margin-slider');
+        const marginValue = document.getElementById('margin-value');
+
+        marginSlider.addEventListener('input', () => {
+            marginValue.textContent = marginSlider.value + '%';
+        });
+
+        // Advanced Options Toggle
+        const advancedToggle = document.getElementById('advanced-toggle');
+        const advancedOptions = document.getElementById('advanced-options');
+        const advancedInput = document.getElementById('advanced');
+
+        advancedToggle.addEventListener('click', () => {
+            advancedToggle.classList.toggle('open');
+            advancedOptions.classList.toggle('open');
+            updateAdvancedState();
+        });
+
+        function updateAdvancedState() {
+            const colorCorrection = document.getElementById('color-correction').checked;
+            const offsetAlignment = document.getElementById('offset-alignment').checked;
+            const internalRes = document.getElementById('internal-resolution').checked;
+            advancedInput.value = colorCorrection || offsetAlignment || internalRes;
+        }
+
+        document.querySelectorAll('#advanced-options input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', updateAdvancedState);
+        });
+
+        // Preview Section
+        const previewSection = document.getElementById('preview-section');
+        const previewGrid = document.getElementById('preview-grid');
+
+        function addPreview(pageNum, base64Data, stage) {
+            previewSection.classList.add('active');
+
+            let card = document.getElementById('preview-' + pageNum + '-' + stage);
+            if (!card) {
+                card = document.createElement('div');
+                card.className = 'preview-card';
+                card.id = 'preview-' + pageNum + '-' + stage;
+
+                const img = document.createElement('img');
+                img.alt = 'Page ' + pageNum;
+                card.appendChild(img);
+
+                const pageDiv = document.createElement('div');
+                pageDiv.className = 'page-num';
+                card.appendChild(pageDiv);
+
+                const stageDiv = document.createElement('div');
+                stageDiv.className = 'stage';
+                card.appendChild(stageDiv);
+
+                previewGrid.appendChild(card);
+            }
+
+            card.querySelector('img').src = 'data:image/jpeg;base64,' + base64Data;
+            card.querySelector('.page-num').textContent = 'ページ ' + pageNum;
+            card.querySelector('.stage').textContent = getStageLabel(stage);
+        }
+
+        function getStageLabel(stage) {
+            const labels = {
+                'original': '元画像',
+                'deskewed': '傾き補正後',
+                'trimmed': 'トリミング後',
+                'upscaled': '超解像後',
+                'normalized': '正規化後',
+                'color_corrected': '色補正後',
+                'final': '最終出力'
+            };
+            return labels[stage] || stage;
+        }
+
+        function clearPreviews() {
+            while (previewGrid.firstChild) {
+                previewGrid.removeChild(previewGrid.firstChild);
+            }
+            previewSection.classList.remove('active');
+        }
 
         // Check health and get version
         fetch('/api/health')
@@ -434,14 +679,83 @@
 
                 const data = await response.json();
                 currentJobId = data.job_id;
-                startPolling();
+                connectWebSocket(currentJobId);
             } catch (error) {
                 showError(error.message);
             }
         });
 
-        function startPolling() {
-            pollInterval = setInterval(async () => {
+        // WebSocket connection for real-time progress updates
+        function connectWebSocket(jobId) {
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = protocol + '//' + location.host + '/ws/jobs/' + jobId;
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log('WebSocket connected for job:', jobId);
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    handleWebSocketMessage(msg);
+                } catch (e) {
+                    console.error('Failed to parse WebSocket message:', e);
+                }
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket closed');
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                // Fallback to polling if WebSocket fails
+                startPollingFallback();
+            };
+        }
+
+        function handleWebSocketMessage(msg) {
+            switch (msg.type) {
+                case 'progress':
+                    const data = msg.data;
+                    progressFill.style.width = data.percent + '%';
+                    progressPercent.textContent = data.percent + '%';
+                    progressStep.textContent = data.step_name;
+                    break;
+
+                case 'status_change':
+                    console.log('Status changed:', msg.data.old_status, '->', msg.data.new_status);
+                    break;
+
+                case 'completed':
+                    closeWebSocket();
+                    showSuccess(msg.data.download_url);
+                    break;
+
+                case 'error':
+                    closeWebSocket();
+                    showError(msg.data.message);
+                    break;
+
+                case 'page_preview':
+                    const preview = msg.data;
+                    addPreview(preview.page_number, preview.preview_base64, preview.stage);
+                    break;
+            }
+        }
+
+        function closeWebSocket() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        // Fallback polling if WebSocket connection fails
+        function startPollingFallback() {
+            const pollInterval = setInterval(async () => {
                 try {
                     const response = await fetch('/api/jobs/' + currentJobId);
                     const job = await response.json();
@@ -454,13 +768,13 @@
                     }
 
                     if (job.status === 'completed') {
-                        stopPolling();
-                        showSuccess();
+                        clearInterval(pollInterval);
+                        showSuccess('/api/jobs/' + currentJobId + '/download');
                     } else if (job.status === 'failed') {
-                        stopPolling();
+                        clearInterval(pollInterval);
                         showError(job.error || 'Unknown error');
                     } else if (job.status === 'cancelled') {
-                        stopPolling();
+                        clearInterval(pollInterval);
                         showError('Job was cancelled');
                     }
                 } catch (error) {
@@ -469,19 +783,12 @@
             }, 1000);
         }
 
-        function stopPolling() {
-            if (pollInterval) {
-                clearInterval(pollInterval);
-                pollInterval = null;
-            }
-        }
-
-        function showSuccess() {
+        function showSuccess(downloadUrl) {
             progressSection.classList.remove('active');
             resultSection.classList.add('active');
             resultSuccess.style.display = 'block';
             resultError.style.display = 'none';
-            downloadLink.href = '/api/jobs/' + currentJobId + '/download';
+            downloadLink.href = downloadUrl || '/api/jobs/' + currentJobId + '/download';
             resetFormState();
         }
 
@@ -506,7 +813,9 @@
         }
 
         function resetForm() {
+            closeWebSocket();
             resetFormState();
+            clearPreviews();
             resultSection.classList.remove('active');
             resultSuccess.style.display = 'none';
             resultError.style.display = 'none';
