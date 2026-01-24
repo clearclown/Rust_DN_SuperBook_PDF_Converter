@@ -125,6 +125,128 @@ impl ColorStats {
     }
 }
 
+/// Bleed-through (裏写り) suppression parameters using HSV color space
+///
+/// This structure defines the HSV color ranges that identify bleed-through
+/// artifacts from the reverse side of pages in scanned books.
+///
+/// # Phase 1.3 Enhancement
+///
+/// Bleed-through typically appears as:
+/// - Yellowish/orange tint (hue 20-65 degrees)
+/// - Low saturation (< 30% for pastel colors)
+/// - High value/brightness (> 70% for light colors)
+#[derive(Debug, Clone)]
+pub struct BleedSuppression {
+    /// Minimum hue for bleed detection (degrees, 0-360)
+    /// Yellow starts around 20 degrees
+    pub hue_min: f32,
+
+    /// Maximum hue for bleed detection (degrees, 0-360)
+    /// Orange ends around 65 degrees
+    pub hue_max: f32,
+
+    /// Maximum saturation for bleed detection (0.0-1.0)
+    /// Only detect pastel/faded colors (typically < 0.3)
+    pub saturation_max: f32,
+
+    /// Minimum value (brightness) for bleed detection (0.0-1.0)
+    /// Only detect light colors (typically > 0.7)
+    pub value_min: f32,
+
+    /// Enable bleed suppression
+    pub enabled: bool,
+
+    /// Strength of bleed suppression (0.0-1.0)
+    /// 1.0 = full white, 0.0 = no change
+    pub strength: f32,
+}
+
+impl Default for BleedSuppression {
+    fn default() -> Self {
+        Self {
+            hue_min: 20.0,
+            hue_max: 65.0,
+            saturation_max: 0.30,
+            value_min: 0.70,
+            enabled: true,
+            strength: 1.0,
+        }
+    }
+}
+
+impl BleedSuppression {
+    /// Create a new BleedSuppression configuration
+    pub fn new(hue_min: f32, hue_max: f32, saturation_max: f32, value_min: f32) -> Self {
+        Self {
+            hue_min,
+            hue_max,
+            saturation_max,
+            value_min,
+            enabled: true,
+            strength: 1.0,
+        }
+    }
+
+    /// Check if a pixel is a bleed-through artifact
+    ///
+    /// # Arguments
+    /// * `h` - Hue (0-360 degrees)
+    /// * `s` - Saturation (0.0-1.0)
+    /// * `v` - Value/Brightness (0.0-1.0)
+    ///
+    /// # Returns
+    /// `true` if the pixel matches bleed-through characteristics
+    pub fn is_bleed_through(&self, h: f32, s: f32, v: f32) -> bool {
+        if !self.enabled {
+            return false;
+        }
+
+        // Check hue range (yellow to orange)
+        let hue_match = h >= self.hue_min && h <= self.hue_max;
+
+        // Check saturation (low saturation = pastel/faded)
+        let sat_match = s <= self.saturation_max;
+
+        // Check value (high brightness)
+        let val_match = v >= self.value_min;
+
+        hue_match && sat_match && val_match
+    }
+
+    /// Create configuration for aggressive bleed removal
+    pub fn aggressive() -> Self {
+        Self {
+            hue_min: 15.0,
+            hue_max: 75.0,
+            saturation_max: 0.40,
+            value_min: 0.60,
+            enabled: true,
+            strength: 1.0,
+        }
+    }
+
+    /// Create configuration for gentle bleed removal
+    pub fn gentle() -> Self {
+        Self {
+            hue_min: 25.0,
+            hue_max: 55.0,
+            saturation_max: 0.20,
+            value_min: 0.80,
+            enabled: true,
+            strength: 0.7,
+        }
+    }
+
+    /// Disable bleed suppression
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            ..Default::default()
+        }
+    }
+}
+
 /// Global color adjustment parameters
 #[derive(Debug, Clone)]
 pub struct GlobalColorParam {
@@ -157,12 +279,15 @@ pub struct GlobalColorParam {
     /// Color distance threshold (L1 norm)
     pub color_dist_threshold: u8,
 
-    /// Bleed-through hue range minimum (degrees)
+    /// Bleed-through hue range minimum (degrees) - legacy
     pub bleed_hue_min: f32,
-    /// Bleed-through hue range maximum (degrees)
+    /// Bleed-through hue range maximum (degrees) - legacy
     pub bleed_hue_max: f32,
-    /// Bleed-through minimum value (HSV)
+    /// Bleed-through minimum value (HSV) - legacy
     pub bleed_value_min: f32,
+
+    /// Enhanced bleed suppression configuration (Phase 1.3)
+    pub bleed_suppression: BleedSuppression,
 }
 
 impl Default for GlobalColorParam {
@@ -184,6 +309,7 @@ impl Default for GlobalColorParam {
             bleed_hue_min: 20.0,
             bleed_hue_max: 65.0,
             bleed_value_min: 0.35,
+            bleed_suppression: BleedSuppression::default(),
         }
     }
 }
@@ -422,6 +548,7 @@ impl ColorAnalyzer {
             bleed_hue_min: 20.0,
             bleed_hue_max: 65.0,
             bleed_value_min: 0.35,
+            bleed_suppression: BleedSuppression::default(),
         }
     }
 
@@ -469,8 +596,18 @@ impl ColorAnalyzer {
                     }
                 }
 
-                // Orange/pink noise removal
-                let (hue, _sat, _val) = Self::rgb_to_hsv(r, g, b);
+                // Phase 1.3: Enhanced bleed-through suppression using HSV
+                let (hue, sat_hsv, val_hsv) = Self::rgb_to_hsv(r, g, b);
+
+                if params.bleed_suppression.is_bleed_through(hue, sat_hsv, val_hsv) {
+                    // Apply bleed suppression with strength factor
+                    let strength = params.bleed_suppression.strength;
+                    r = Self::clamp8(r as f64 + (255.0 - r as f64) * strength as f64);
+                    g = Self::clamp8(g as f64 + (255.0 - g as f64) * strength as f64);
+                    b = Self::clamp8(b as f64 + (255.0 - b as f64) * strength as f64);
+                }
+
+                // Legacy: Orange/pink noise removal (for backward compatibility)
                 let max2 = r.max(g).max(b);
                 let min2 = r.min(g).min(b);
                 let sat2 = if max2 == 0 {
@@ -490,6 +627,65 @@ impl ColorAnalyzer {
 
                 image.put_pixel(x, y, Rgb([r, g, b]));
             }
+        }
+    }
+
+    /// Apply bleed-through suppression only (without other adjustments)
+    ///
+    /// Phase 1.3: Dedicated function for bleed-through removal
+    pub fn apply_bleed_suppression(image: &mut RgbImage, bleed_config: &BleedSuppression) {
+        if !bleed_config.enabled {
+            return;
+        }
+
+        let (w, h) = image.dimensions();
+
+        for y in 0..h {
+            for x in 0..w {
+                let pixel = image.get_pixel(x, y);
+                let (r, g, b) = (pixel.0[0], pixel.0[1], pixel.0[2]);
+
+                let (hue, sat, val) = Self::rgb_to_hsv(r, g, b);
+
+                if bleed_config.is_bleed_through(hue, sat, val) {
+                    let strength = bleed_config.strength;
+                    let new_r = Self::clamp8(r as f64 + (255.0 - r as f64) * strength as f64);
+                    let new_g = Self::clamp8(g as f64 + (255.0 - g as f64) * strength as f64);
+                    let new_b = Self::clamp8(b as f64 + (255.0 - b as f64) * strength as f64);
+                    image.put_pixel(x, y, Rgb([new_r, new_g, new_b]));
+                }
+            }
+        }
+    }
+
+    /// Detect bleed-through percentage in an image
+    ///
+    /// Returns the percentage of pixels that match bleed-through characteristics.
+    pub fn detect_bleed_percentage(image: &RgbImage, bleed_config: &BleedSuppression) -> f64 {
+        if !bleed_config.enabled {
+            return 0.0;
+        }
+
+        let (w, h) = image.dimensions();
+        let mut bleed_count = 0u64;
+
+        for y in (0..h).step_by(SAMPLE_STEP as usize) {
+            for x in (0..w).step_by(SAMPLE_STEP as usize) {
+                let pixel = image.get_pixel(x, y);
+                let (r, g, b) = (pixel.0[0], pixel.0[1], pixel.0[2]);
+                let (hue, sat, val) = Self::rgb_to_hsv(r, g, b);
+
+                if bleed_config.is_bleed_through(hue, sat, val) {
+                    bleed_count += 1;
+                }
+            }
+        }
+
+        let sample_total = ((w / SAMPLE_STEP) * (h / SAMPLE_STEP)) as f64;
+        if sample_total > 0.0 {
+            (bleed_count as f64 / sample_total) * 100.0
+        } else {
+            0.0
         }
     }
 
@@ -1055,5 +1251,148 @@ mod tests {
                 max - min
             );
         }
+    }
+
+    // ============================================================
+    // Phase 1.3: BleedSuppression Tests
+    // ============================================================
+
+    // TC-BLEED-001: BleedSuppression デフォルト値
+    #[test]
+    fn test_bleed_suppression_default() {
+        let bleed = BleedSuppression::default();
+        assert_eq!(bleed.hue_min, 20.0);
+        assert_eq!(bleed.hue_max, 65.0);
+        assert_eq!(bleed.saturation_max, 0.30);
+        assert_eq!(bleed.value_min, 0.70);
+        assert!(bleed.enabled);
+        assert_eq!(bleed.strength, 1.0);
+    }
+
+    // TC-BLEED-002: 裏写り検出 - 黄色系
+    #[test]
+    fn test_bleed_detection_yellow_bleed() {
+        let bleed = BleedSuppression::default();
+
+        // Yellow bleed-through (hue=40, low sat, high val)
+        assert!(bleed.is_bleed_through(40.0, 0.2, 0.8));
+
+        // Not bleed: high saturation yellow
+        assert!(!bleed.is_bleed_through(40.0, 0.5, 0.8));
+
+        // Not bleed: dark yellow
+        assert!(!bleed.is_bleed_through(40.0, 0.2, 0.5));
+    }
+
+    // TC-BLEED-003: 裏写り検出 - 範囲外
+    #[test]
+    fn test_bleed_detection_out_of_range() {
+        let bleed = BleedSuppression::default();
+
+        // Blue (hue=240) - not bleed
+        assert!(!bleed.is_bleed_through(240.0, 0.2, 0.8));
+
+        // Red (hue=0) - not bleed
+        assert!(!bleed.is_bleed_through(0.0, 0.2, 0.8));
+
+        // Green (hue=120) - not bleed
+        assert!(!bleed.is_bleed_through(120.0, 0.2, 0.8));
+    }
+
+    // TC-BLEED-004: 裏写り検出 - 無効時
+    #[test]
+    fn test_bleed_detection_disabled() {
+        let bleed = BleedSuppression::disabled();
+
+        // Should not detect anything when disabled
+        assert!(!bleed.is_bleed_through(40.0, 0.2, 0.8));
+    }
+
+    // TC-BLEED-005: 裏写り抑制適用
+    #[test]
+    fn test_apply_bleed_suppression() {
+        // Create image with yellow bleed-through
+        let mut img = RgbImage::from_pixel(10, 10, Rgb([255, 240, 200])); // Light yellow
+
+        let bleed = BleedSuppression::default();
+        ColorAnalyzer::apply_bleed_suppression(&mut img, &bleed);
+
+        // Pixel should be whitened
+        let pixel = img.get_pixel(5, 5);
+        assert!(
+            pixel.0[0] > 250 && pixel.0[1] > 250 && pixel.0[2] > 250,
+            "Bleed pixel should be whitened: {:?}",
+            pixel
+        );
+    }
+
+    // TC-BLEED-006: 裏写り検出率
+    #[test]
+    fn test_detect_bleed_percentage() {
+        // Create image with some bleed-through
+        let mut img = RgbImage::from_pixel(100, 100, Rgb([255, 255, 255])); // White
+
+        // Add bleed-through area (25% of image)
+        for y in 0..50 {
+            for x in 0..50 {
+                img.put_pixel(x, y, Rgb([255, 240, 200])); // Light yellow
+            }
+        }
+
+        let bleed = BleedSuppression::default();
+        let percentage = ColorAnalyzer::detect_bleed_percentage(&img, &bleed);
+
+        // Should detect roughly 25% bleed
+        assert!(
+            percentage > 10.0 && percentage < 40.0,
+            "Bleed percentage {} should be around 25%",
+            percentage
+        );
+    }
+
+    // TC-BLEED-007: アグレッシブモード
+    #[test]
+    fn test_bleed_suppression_aggressive() {
+        let bleed = BleedSuppression::aggressive();
+
+        // Aggressive should have wider ranges
+        assert!(bleed.hue_min < 20.0);
+        assert!(bleed.hue_max > 65.0);
+        assert!(bleed.saturation_max > 0.30);
+        assert!(bleed.value_min < 0.70);
+    }
+
+    // TC-BLEED-008: ジェントルモード
+    #[test]
+    fn test_bleed_suppression_gentle() {
+        let bleed = BleedSuppression::gentle();
+
+        // Gentle should have narrower ranges
+        assert!(bleed.hue_min > 20.0);
+        assert!(bleed.hue_max < 65.0);
+        assert!(bleed.saturation_max < 0.30);
+        assert!(bleed.value_min > 0.70);
+        assert!(bleed.strength < 1.0);
+    }
+
+    // TC-BLEED-009: カスタム設定
+    #[test]
+    fn test_bleed_suppression_custom() {
+        let bleed = BleedSuppression::new(30.0, 50.0, 0.25, 0.75);
+
+        assert_eq!(bleed.hue_min, 30.0);
+        assert_eq!(bleed.hue_max, 50.0);
+        assert_eq!(bleed.saturation_max, 0.25);
+        assert_eq!(bleed.value_min, 0.75);
+    }
+
+    // TC-BLEED-010: GlobalColorParamにBleedSuppression含む
+    #[test]
+    fn test_global_color_param_includes_bleed() {
+        let params = GlobalColorParam::default();
+
+        // Should include default bleed suppression
+        assert!(params.bleed_suppression.enabled);
+        assert_eq!(params.bleed_suppression.hue_min, 20.0);
     }
 }
