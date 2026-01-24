@@ -4,7 +4,7 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1122_passed-green.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1127_passed-green.svg)]()
 
 ## ステータス
 
@@ -13,7 +13,7 @@
 | 項目 | 状態 |
 |------|------|
 | コード行数 | 27,000行 |
-| テスト | 1,122件 全てパス |
+| テスト | 1,127件 全てパス |
 | Clippy警告 | 0件 |
 | メモリ使用量 | 0.4-0.8 GB (C#版の1/30) |
 

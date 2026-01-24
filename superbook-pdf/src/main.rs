@@ -229,6 +229,17 @@ fn print_execution_plan(args: &ConvertArgs, pdf_files: &[PathBuf]) {
     );
     println!("  Verbose: {}", args.verbose);
     println!();
+    println!("Debug Options:");
+    if let Some(max) = args.max_pages {
+        println!("  Max pages: {}", max);
+    } else {
+        println!("  Max pages: unlimited");
+    }
+    println!(
+        "  Save debug images: {}",
+        if args.save_debug { "YES" } else { "NO" }
+    );
+    println!();
     println!("Files:");
     for (i, file) in pdf_files.iter().enumerate() {
         println!("  {}. {}", i + 1, file.display());
@@ -266,9 +277,23 @@ fn process_single_pdf(
     let extracted_dir = work_dir.join("extracted");
     std::fs::create_dir_all(&extracted_dir)?;
 
-    let extracted_pages = LopdfExtractor::extract_auto(pdf_path, &extracted_dir, &extract_options)?;
+    let mut extracted_pages = LopdfExtractor::extract_auto(pdf_path, &extracted_dir, &extract_options)?;
+
+    // Apply --max-pages limit for debugging
+    if let Some(max_pages) = args.max_pages {
+        if extracted_pages.len() > max_pages {
+            if verbose {
+                println!(
+                    "    Limiting to {} pages (--max-pages)",
+                    max_pages
+                );
+            }
+            extracted_pages.truncate(max_pages);
+        }
+    }
+
     if verbose {
-        println!("    Extracted {} pages", extracted_pages.len());
+        println!("    Processing {} pages", extracted_pages.len());
     }
 
     // Step 3: Deskew (if enabled) - parallel

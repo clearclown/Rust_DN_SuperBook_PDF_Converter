@@ -186,6 +186,15 @@ pub struct ConvertArgs {
     /// Skip files if output already exists
     #[arg(long)]
     pub skip_existing: bool,
+
+    // === Debug options ===
+    /// Maximum pages to process (for debugging)
+    #[arg(long)]
+    pub max_pages: Option<usize>,
+
+    /// Save intermediate debug images
+    #[arg(long)]
+    pub save_debug: bool,
 }
 
 impl ConvertArgs {
@@ -1755,6 +1764,60 @@ mod tests {
             assert!(args.skip_existing);
             assert!(args.advanced);
             assert_eq!(args.verbose, 1);
+        }
+    }
+
+    // ============ Debug Options Tests ============
+
+    #[test]
+    fn test_max_pages_default() {
+        let cli = Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf"]).unwrap();
+        if let Commands::Convert(args) = cli.command {
+            assert!(args.max_pages.is_none());
+        }
+    }
+
+    #[test]
+    fn test_max_pages_explicit() {
+        let cli =
+            Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "--max-pages", "10"])
+                .unwrap();
+        if let Commands::Convert(args) = cli.command {
+            assert_eq!(args.max_pages, Some(10));
+        }
+    }
+
+    #[test]
+    fn test_save_debug_default() {
+        let cli = Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf"]).unwrap();
+        if let Commands::Convert(args) = cli.command {
+            assert!(!args.save_debug);
+        }
+    }
+
+    #[test]
+    fn test_save_debug_enabled() {
+        let cli =
+            Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "--save-debug"]).unwrap();
+        if let Commands::Convert(args) = cli.command {
+            assert!(args.save_debug);
+        }
+    }
+
+    #[test]
+    fn test_debug_options_combined() {
+        let cli = Cli::try_parse_from([
+            "superbook-pdf",
+            "convert",
+            "input.pdf",
+            "--max-pages",
+            "5",
+            "--save-debug",
+        ])
+        .unwrap();
+        if let Commands::Convert(args) = cli.command {
+            assert_eq!(args.max_pages, Some(5));
+            assert!(args.save_debug);
         }
     }
 }
