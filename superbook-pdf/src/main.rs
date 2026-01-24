@@ -33,8 +33,11 @@ use superbook_pdf::{
     RealEsrganOptions,
     SubprocessBridge,
     TesseractPageDetector,
+    // v0.2.0: Vertical text detection
+    VerticalDetectOptions,
     YomiToku,
     YomiTokuOptions,
+    detect_book_vertical_writing,
 };
 
 fn main() {
@@ -718,6 +721,55 @@ fn process_single_pdf(
     } else {
         images_after_crop.clone()
     };
+
+    // Step 10.5: Vertical text detection (Japanese books)
+    let is_vertical_writing = if args.advanced && !final_images.is_empty() {
+        if verbose {
+            println!("  Detecting text direction...");
+        }
+
+        // Load images as grayscale for vertical detection
+        let mut gray_images = Vec::new();
+        for img_path in final_images.iter().take(20) {
+            // Sample up to 20 pages
+            if let Ok(img) = image::open(img_path) {
+                gray_images.push(img.to_luma8());
+            }
+        }
+
+        if !gray_images.is_empty() {
+            let vd_options = VerticalDetectOptions::default();
+            match detect_book_vertical_writing(&gray_images, &vd_options) {
+                Ok(result) => {
+                    if verbose {
+                        println!(
+                            "    Text direction: {} (probability: {:.1}%)",
+                            if result.is_vertical {
+                                "vertical"
+                            } else {
+                                "horizontal"
+                            },
+                            result.vertical_probability * 100.0
+                        );
+                    }
+                    result.is_vertical
+                }
+                Err(e) => {
+                    if verbose && args.verbose > 1 {
+                        println!("    Vertical detection failed: {}", e);
+                    }
+                    false
+                }
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    // Note: is_vertical_writing will be used for PDF viewer preferences in future versions
+    let _ = is_vertical_writing;
 
     // Step 11: OCR with YomiToku (if enabled)
     let ocr_results = if args.ocr {
