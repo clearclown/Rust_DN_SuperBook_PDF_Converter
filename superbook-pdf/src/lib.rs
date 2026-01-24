@@ -129,6 +129,7 @@ pub mod normalize;
 pub mod page_number;
 pub mod parallel;
 pub mod pdf_reader;
+pub mod pipeline;
 pub mod progress;
 pub mod pdf_writer;
 pub mod realesrgan;
@@ -196,6 +197,7 @@ pub use cache::{
     should_skip_processing, CacheDigest, ProcessingCache, ProcessingResult, CACHE_EXTENSION,
     CACHE_VERSION,
 };
+pub use pipeline::{PdfPipeline, PipelineConfig, PipelineError, PipelineResult};
 
 /// Exit codes for CLI (deprecated: prefer using `ExitCode` enum)
 ///
