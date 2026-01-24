@@ -176,6 +176,11 @@ fn print_execution_plan(args: &ConvertArgs, pdf_files: &[PathBuf]) {
     println!();
     println!("Processing Options:");
     println!("  Threads: {}", args.thread_count());
+    if args.chunk_size > 0 {
+        println!("  Chunk size: {} pages", args.chunk_size);
+    } else {
+        println!("  Chunk size: unlimited (all pages at once)");
+    }
     println!("  GPU: {}", if args.effective_gpu() { "YES" } else { "NO" });
     println!("  Verbose: {}", args.verbose);
     println!();
