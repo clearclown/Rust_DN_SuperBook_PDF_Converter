@@ -57,8 +57,49 @@ EXIT_GPU_ERROR = 5
 EXIT_OOM = 6
 
 
+MODEL_URLS = {
+    "RealESRGAN_x4plus.pth": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+    "RealESRGAN_x2plus.pth": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
+    "RealESRGAN_x4plus_anime_6B.pth": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth",
+}
+
+
+def download_model(model_filename: str, target_path: Path) -> bool:
+    """Download model weights if not present."""
+    import urllib.request
+    import ssl
+    
+    if target_path.exists():
+        return True
+    
+    url = MODEL_URLS.get(model_filename)
+    if not url:
+        print(f"Unknown model: {model_filename}", file=sys.stderr)
+        return False
+    
+    print(f"Downloading model: {model_filename}...", file=sys.stderr)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        # Create SSL context that doesn't verify certificates (for GitHub redirects)
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        
+        urllib.request.urlretrieve(url, target_path)
+        print(f"Downloaded: {target_path}", file=sys.stderr)
+        return True
+    except Exception as e:
+        print(f"Download failed: {e}", file=sys.stderr)
+        return False
+
+
 def get_model(model_name: str, scale: int):
     """Load RealESRGAN model."""
+    # Determine script directory for weights path
+    script_dir = Path(__file__).parent
+    weights_dir = script_dir / "weights"
+    
     if model_name == "realesrgan-x4plus":
         model = RRDBNet(
             num_in_ch=3,
@@ -69,7 +110,7 @@ def get_model(model_name: str, scale: int):
             scale=4
         )
         netscale = 4
-        model_path = "weights/RealESRGAN_x4plus.pth"
+        model_filename = "RealESRGAN_x4plus.pth"
     elif model_name == "realesrgan-x2plus":
         model = RRDBNet(
             num_in_ch=3,
@@ -80,7 +121,7 @@ def get_model(model_name: str, scale: int):
             scale=2
         )
         netscale = 2
-        model_path = "weights/RealESRGAN_x2plus.pth"
+        model_filename = "RealESRGAN_x2plus.pth"
     elif model_name == "realesrgan-x4plus-anime":
         model = RRDBNet(
             num_in_ch=3,
@@ -91,11 +132,31 @@ def get_model(model_name: str, scale: int):
             scale=4
         )
         netscale = 4
-        model_path = "weights/RealESRGAN_x4plus_anime_6B.pth"
+        model_filename = "RealESRGAN_x4plus_anime_6B.pth"
     else:
         raise ValueError(f"Unknown model: {model_name}")
-
-    return model, netscale, model_path
+    
+    # Try multiple locations for weights
+    model_path = weights_dir / model_filename
+    
+    # Also check common cache locations
+    alt_paths = [
+        Path.home() / ".cache" / "realesrgan" / model_filename,
+        Path("/usr/share/realesrgan") / model_filename,
+    ]
+    
+    # Find existing or download
+    if not model_path.exists():
+        for alt in alt_paths:
+            if alt.exists():
+                model_path = alt
+                break
+        else:
+            # Download to script's weights directory
+            if not download_model(model_filename, model_path):
+                raise FileNotFoundError(f"Model weights not found and download failed: {model_filename}")
+    
+    return model, netscale, str(model_path)
 
 
 def upscale_image(

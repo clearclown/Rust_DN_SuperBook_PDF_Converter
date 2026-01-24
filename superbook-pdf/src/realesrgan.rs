@@ -396,11 +396,10 @@ impl RealEsrgan {
         let start_time = std::time::Instant::now();
 
         // Create output directory if needed
-        if let Some(parent) = output_path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|_| RealEsrganError::OutputNotWritable(parent.to_path_buf()))?;
-            }
+        let output_dir = output_path.parent().unwrap_or(Path::new("."));
+        if !output_dir.exists() {
+            std::fs::create_dir_all(output_dir)
+                .map_err(|_| RealEsrganError::OutputNotWritable(output_dir.to_path_buf()))?;
         }
 
         // Execute via bridge
@@ -409,7 +408,7 @@ impl RealEsrgan {
             .execute(
                 AiTool::RealESRGAN,
                 &[input_path.to_path_buf()],
-                output_path.parent().unwrap_or(Path::new(".")),
+                output_dir,
                 options,
             )
             .map_err(RealEsrganError::BridgeError)?;
@@ -419,19 +418,43 @@ impl RealEsrgan {
             return Err(RealEsrganError::ProcessingFailed(error.clone()));
         }
 
-        // Verify output and get upscaled size
-        let upscaled_size = if output_path.exists() {
-            let output_img =
-                image::open(output_path).map_err(|e| RealEsrganError::ImageError(e.to_string()))?;
-            (output_img.width(), output_img.height())
-        } else {
-            // Estimate based on scale
-            (
-                original_size.0 * options.scale,
-                original_size.1 * options.scale,
-            )
-        };
+        // Bridge saves to {output_dir}/{input_stem}_upscaled.{ext}
+        // Rename to the expected output_path if different
+        let bridge_output = output_dir.join(format!(
+            "{}_upscaled.{}",
+            input_path.file_stem().unwrap_or_default().to_string_lossy(),
+            input_path.extension().unwrap_or_default().to_string_lossy()
+        ));
 
+        // Rename to expected path if different
+        if bridge_output != output_path {
+            if bridge_output.exists() {
+                std::fs::rename(&bridge_output, output_path).map_err(|e| {
+                    RealEsrganError::ProcessingFailed(format!(
+                        "Failed to rename output file: {}",
+                        e
+                    ))
+                })?;
+            } else if !output_path.exists() {
+                return Err(RealEsrganError::ProcessingFailed(format!(
+                    "Output file not created: expected at {} or {}",
+                    bridge_output.display(),
+                    output_path.display()
+                )));
+            }
+        }
+
+        // Verify output and get upscaled size
+        if !output_path.exists() {
+            return Err(RealEsrganError::ProcessingFailed(format!(
+                "Output file not found: {}",
+                output_path.display()
+            )));
+        }
+
+        let output_img =
+            image::open(output_path).map_err(|e| RealEsrganError::ImageError(e.to_string()))?;
+        let upscaled_size = (output_img.width(), output_img.height());
         let actual_scale = upscaled_size.0 as f32 / original_size.0 as f32;
 
         Ok(UpscaleResult {

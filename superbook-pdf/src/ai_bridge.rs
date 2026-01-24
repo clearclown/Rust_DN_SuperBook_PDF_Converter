@@ -412,15 +412,36 @@ impl SubprocessBridge {
     }
 
     /// Execute AI tool
+    ///
+    /// # Arguments
+    /// * `tool` - The AI tool to execute
+    /// * `input_files` - Input file paths
+    /// * `output_dir` - Output directory for results
+    /// * `tool_options` - Tool-specific options (can be downcast to RealEsrganOptions, etc.)
     pub fn execute(
         &self,
         tool: AiTool,
         input_files: &[PathBuf],
         output_dir: &Path,
-        _tool_options: &dyn std::any::Any,
+        tool_options: &dyn std::any::Any,
     ) -> Result<AiTaskResult> {
         let start_time = std::time::Instant::now();
         let python = self.get_python_path();
+
+        // Get bridge script path (relative to venv parent directory)
+        let bridge_dir = self.config.venv_path.parent().unwrap_or(Path::new("."));
+        let bridge_script = match tool {
+            AiTool::RealESRGAN => bridge_dir.join("realesrgan_bridge.py"),
+            AiTool::YomiToku => bridge_dir.join("yomitoku_bridge.py"),
+        };
+
+        // Check if bridge script exists
+        if !bridge_script.exists() {
+            return Err(AiBridgeError::ProcessFailed(format!(
+                "Bridge script not found: {}",
+                bridge_script.display()
+            )));
+        }
 
         let mut processed = Vec::new();
         let mut failed = Vec::new();
@@ -428,22 +449,43 @@ impl SubprocessBridge {
         for input_file in input_files {
             let mut last_error = None;
 
+            // Generate output filename based on input
+            let output_filename = format!(
+                "{}_upscaled.{}",
+                input_file.file_stem().unwrap_or_default().to_string_lossy(),
+                input_file.extension().unwrap_or_default().to_string_lossy()
+            );
+            let output_path = output_dir.join(&output_filename);
+
             for retry in 0..=self.config.retry_config.max_retries {
                 let mut cmd = Command::new(&python);
+                cmd.arg(&bridge_script);
 
                 match tool {
                     AiTool::RealESRGAN => {
-                        cmd.arg("-m").arg("realesrgan");
-                        if let Some(tile) = self.config.gpu_config.tile_size {
+                        cmd.arg("-i").arg(input_file);
+                        cmd.arg("-o").arg(&output_path);
+
+                        // Extract options from tool_options if available
+                        if let Some(opts) = tool_options.downcast_ref::<crate::RealEsrganOptions>() {
+                            cmd.arg("-s").arg(opts.scale.to_string());
+                            cmd.arg("-t").arg(opts.tile_size.to_string());
+                            if let Some(gpu_id) = opts.gpu_id {
+                                cmd.arg("-g").arg(gpu_id.to_string());
+                            }
+                            if !opts.fp16 {
+                                cmd.arg("--fp32");
+                            }
+                        } else if let Some(tile) = self.config.gpu_config.tile_size {
                             cmd.arg("-t").arg(tile.to_string());
                         }
-                        cmd.arg("-i").arg(input_file);
-                        cmd.arg("-o").arg(output_dir);
+
+                        cmd.arg("--json");
                     }
                     AiTool::YomiToku => {
-                        cmd.arg("-m").arg("yomitoku");
                         cmd.arg(input_file);
                         cmd.arg("--output").arg(output_dir);
+                        cmd.arg("--json");
                     }
                 }
 
@@ -458,7 +500,8 @@ impl SubprocessBridge {
                     }
                     Ok(output) => {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        last_error = Some(stderr.to_string());
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        last_error = Some(format!("stderr: {}, stdout: {}", stderr, stdout));
 
                         if stderr.contains("out of memory") || stderr.contains("CUDA error") {
                             return Err(AiBridgeError::OutOfMemory);
