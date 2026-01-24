@@ -136,6 +136,8 @@ pub mod pdf_writer;
 pub mod realesrgan;
 pub mod util;
 pub mod vertical_detect;
+#[cfg(feature = "web")]
+pub mod web;
 pub mod yomitoku;
 
 // Re-exports for convenience
@@ -146,6 +148,8 @@ pub use cli::{
     create_page_progress_bar, create_progress_bar, create_spinner, CacheInfoArgs, Cli, Commands,
     ConvertArgs, ExitCode,
 };
+#[cfg(feature = "web")]
+pub use cli::ServeArgs;
 pub use config::{
     AdvancedConfig, CliOverrides, Config, ConfigError, GeneralConfig, OcrConfig, OutputConfig,
     ProcessingConfig,
@@ -205,6 +209,13 @@ pub use cache::{
 pub use pipeline::{
     PdfPipeline, PipelineConfig, PipelineError, PipelineResult, ProcessingContext,
     ProgressCallback, SilentProgress,
+};
+
+// Web server (optional feature)
+#[cfg(feature = "web")]
+pub use web::{
+    ConvertOptions as WebConvertOptions, Job, JobQueue, JobStatus, Progress as WebProgress,
+    ServerConfig, WebServer,
 };
 
 /// Exit codes for CLI (deprecated: prefer using `ExitCode` enum)
