@@ -154,8 +154,9 @@ pub use margin::{
     TrimResult, UnifiedCropRegions, UnifiedMargins,
 };
 pub use page_number::{
-    DetectedPageNumber, OffsetCorrection, PageNumberAnalysis, PageNumberError, PageNumberOptions,
-    PageNumberOptionsBuilder, PageNumberPosition, PageNumberRect, TesseractPageDetector,
+    BookOffsetAnalysis, DetectedPageNumber, OffsetCorrection, PageNumberAnalysis, PageNumberError,
+    PageNumberOptions, PageNumberOptionsBuilder, PageNumberPosition, PageNumberRect,
+    PageOffsetAnalyzer, PageOffsetResult, TesseractPageDetector,
 };
 pub use pdf_reader::{LopdfReader, PdfDocument, PdfMetadata, PdfPage, PdfReaderError};
 pub use pdf_writer::{PdfWriterError, PdfWriterOptions, PdfWriterOptionsBuilder, PrintPdfWriter};
