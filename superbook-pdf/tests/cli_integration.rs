@@ -9,7 +9,8 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 fn superbook_cmd() -> Command {
-    Command::cargo_bin("superbook-pdf").unwrap()
+    // Use CARGO_BIN_EXE_<name> environment variable set by cargo test
+    Command::new(env!("CARGO_BIN_EXE_superbook-pdf"))
 }
 
 // TC-CLI-001: ヘルプ表示

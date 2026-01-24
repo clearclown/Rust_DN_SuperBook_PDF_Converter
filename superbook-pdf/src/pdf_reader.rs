@@ -400,7 +400,7 @@ mod tests {
             "tests/fixtures/with_metadata.pdf",
         ];
 
-        let results: Vec<_> = paths.par_iter().map(|p| LopdfReader::new(p)).collect();
+        let results: Vec<_> = paths.par_iter().map(LopdfReader::new).collect();
 
         assert!(results.iter().all(|r| r.is_ok()));
     }
@@ -500,7 +500,7 @@ mod tests {
         let doc = LopdfReader::new("tests/fixtures/10pages.pdf").unwrap();
 
         // Iterate over all pages
-        let page_count = doc.info.pages.iter().count();
+        let page_count = doc.info.pages.len();
         assert_eq!(page_count, doc.info.page_count);
     }
 
@@ -635,7 +635,7 @@ mod tests {
                 has_images: false,
                 has_text: false,
             };
-            assert!(page.rotation % 90 == 0);
+            assert!(page.rotation.is_multiple_of(90));
             assert!(page.rotation < 360);
         }
     }
@@ -1288,7 +1288,7 @@ mod tests {
             PdfReaderError::FileNotFound(PathBuf::from("/test.pdf")),
             PdfReaderError::InvalidFormat("bad format".to_string()),
             PdfReaderError::EncryptedPdf,
-            PdfReaderError::IoError(std::io::Error::new(std::io::ErrorKind::Other, "io")),
+            PdfReaderError::IoError(std::io::Error::other("io")),
             PdfReaderError::ParseError("parse fail".to_string()),
         ];
 

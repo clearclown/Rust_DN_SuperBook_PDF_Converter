@@ -602,7 +602,9 @@ impl BookOffsetAnalysis {
 
     /// Get offset for a specific page
     pub fn get_offset(&self, physical_page: usize) -> Option<&PageOffsetResult> {
-        self.page_offsets.iter().find(|p| p.physical_page == physical_page)
+        self.page_offsets
+            .iter()
+            .find(|p| p.physical_page == physical_page)
     }
 }
 
@@ -635,8 +637,7 @@ impl PageOffsetAnalyzer {
         }
 
         // Step 1: Find the best physical-to-logical shift
-        let (best_shift, match_count, confidence) =
-            Self::find_best_page_number_shift(detections);
+        let (best_shift, match_count, confidence) = Self::find_best_page_number_shift(detections);
 
         // Check if we have enough matches
         if match_count < MIN_MATCH_COUNT
@@ -667,10 +668,14 @@ impl PageOffsetAnalyzer {
         }
 
         // Step 3: Calculate averages for odd and even groups
-        let odd_positions: Vec<&(usize, PageNumberRect, bool)> =
-            matched_pages.iter().filter(|(_, _, is_odd)| *is_odd).collect();
-        let even_positions: Vec<&(usize, PageNumberRect, bool)> =
-            matched_pages.iter().filter(|(_, _, is_odd)| !*is_odd).collect();
+        let odd_positions: Vec<&(usize, PageNumberRect, bool)> = matched_pages
+            .iter()
+            .filter(|(_, _, is_odd)| *is_odd)
+            .collect();
+        let even_positions: Vec<&(usize, PageNumberRect, bool)> = matched_pages
+            .iter()
+            .filter(|(_, _, is_odd)| !*is_odd)
+            .collect();
 
         let odd_avg_x = Self::calculate_average_x(&odd_positions);
         let odd_avg_y = Self::calculate_average_y(&odd_positions);
@@ -678,8 +683,7 @@ impl PageOffsetAnalyzer {
         let even_avg_y = Self::calculate_average_y(&even_positions);
 
         // Step 4: Align Y values between groups if close enough
-        let (final_odd_avg_y, final_even_avg_y) =
-            Self::align_group_y_values(odd_avg_y, even_avg_y);
+        let (final_odd_avg_y, final_even_avg_y) = Self::align_group_y_values(odd_avg_y, even_avg_y);
 
         // Step 5: Calculate per-page offsets
         let page_offsets = Self::calculate_per_page_offsets(
@@ -707,9 +711,7 @@ impl PageOffsetAnalyzer {
     ///
     /// Tests shifts from -MAX_SHIFT_TEST to +MAX_SHIFT_TEST and returns
     /// the shift that maximizes the number of matches weighted by confidence.
-    fn find_best_page_number_shift(
-        detections: &[DetectedPageNumber],
-    ) -> (i32, usize, f64) {
+    fn find_best_page_number_shift(detections: &[DetectedPageNumber]) -> (i32, usize, f64) {
         let mut best_shift = 0i32;
         let mut best_score = 0.0f64;
         let mut best_count = 0usize;
@@ -843,10 +845,7 @@ impl PageOffsetAnalyzer {
 
     /// Create offset results for pages without page number detection
     /// using group averages for alignment
-    pub fn interpolate_missing_offsets(
-        analysis: &mut BookOffsetAnalysis,
-        total_pages: usize,
-    ) {
+    pub fn interpolate_missing_offsets(analysis: &mut BookOffsetAnalysis, total_pages: usize) {
         // Find pages that don't have offsets
         let existing: HashSet<usize> = analysis
             .page_offsets
@@ -857,7 +856,9 @@ impl PageOffsetAnalyzer {
         for page in 1..=total_pages {
             if !existing.contains(&page) {
                 // Add a no-offset entry for missing pages
-                analysis.page_offsets.push(PageOffsetResult::no_offset(page));
+                analysis
+                    .page_offsets
+                    .push(PageOffsetResult::no_offset(page));
             }
         }
 
@@ -1959,7 +1960,7 @@ mod tests {
             PageNumberError::OcrFailed("failed".to_string()),
             PageNumberError::NoPageNumbersDetected,
             PageNumberError::InconsistentPageNumbers,
-            PageNumberError::IoError(std::io::Error::new(std::io::ErrorKind::Other, "io")),
+            PageNumberError::IoError(std::io::Error::other("io")),
         ];
 
         for err in &errors {
@@ -2535,7 +2536,12 @@ mod tests {
             .map(|i| DetectedPageNumber {
                 page_index: i - 1,
                 number: Some(i as i32),
-                position: PageNumberRect { x: 100, y: 6800, width: 50, height: 30 },
+                position: PageNumberRect {
+                    x: 100,
+                    y: 6800,
+                    width: 50,
+                    height: 30,
+                },
                 confidence: 90.0,
                 raw_text: i.to_string(),
             })
@@ -2554,7 +2560,12 @@ mod tests {
             .map(|i| DetectedPageNumber {
                 page_index: i - 1,
                 number: Some((i + 4) as i32), // Physical 1 -> logical 5
-                position: PageNumberRect { x: 100, y: 6800, width: 50, height: 30 },
+                position: PageNumberRect {
+                    x: 100,
+                    y: 6800,
+                    width: 50,
+                    height: 30,
+                },
                 confidence: 90.0,
                 raw_text: (i + 4).to_string(),
             })
@@ -2574,7 +2585,12 @@ mod tests {
                 DetectedPageNumber {
                     page_index: i - 1,
                     number: Some(i as i32),
-                    position: PageNumberRect { x, y: 6800, width: 50, height: 30 },
+                    position: PageNumberRect {
+                        x,
+                        y: 6800,
+                        width: 50,
+                        height: 30,
+                    },
                     confidence: 90.0,
                     raw_text: i.to_string(),
                 }

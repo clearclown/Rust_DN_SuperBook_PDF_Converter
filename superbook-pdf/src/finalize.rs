@@ -89,7 +89,12 @@ pub struct CropRegion {
 impl CropRegion {
     /// Create a new crop region
     pub fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     /// Right edge coordinate
@@ -106,7 +111,12 @@ impl CropRegion {
     pub fn from_bounds(left: i32, top: i32, right: i32, bottom: i32) -> Self {
         let width = (right - left).max(0) as u32;
         let height = (bottom - top).max(0) as u32;
-        Self { x: left, y: top, width, height }
+        Self {
+            x: left,
+            y: top,
+            width,
+            height,
+        }
     }
 }
 
@@ -231,8 +241,8 @@ impl PageFinalizer {
             return Err(FinalizeError::ImageNotFound(input_path.to_path_buf()));
         }
 
-        let img = image::open(input_path)
-            .map_err(|e| FinalizeError::InvalidImage(e.to_string()))?;
+        let img =
+            image::open(input_path).map_err(|e| FinalizeError::InvalidImage(e.to_string()))?;
 
         let (orig_w, orig_h) = img.dimensions();
         let rgb_img = img.to_rgb8();
@@ -241,11 +251,8 @@ impl PageFinalizer {
         let crop = crop_region.unwrap_or_else(|| CropRegion::new(0, 0, orig_w, orig_h));
 
         // Calculate output dimensions
-        let (final_w, final_h, scale) = Self::calculate_output_dimensions(
-            crop.width,
-            crop.height,
-            options,
-        );
+        let (final_w, final_h, scale) =
+            Self::calculate_output_dimensions(crop.width, crop.height, options);
 
         // Sample corner colors for gradient background
         let corners = ImageNormalizer::sample_corner_colors(&rgb_img, options.corner_patch_percent);
@@ -309,9 +316,9 @@ impl PageFinalizer {
 
         // Calculate width to maintain aspect ratio
         let scale = target_h as f64 / crop_h as f64;
-        let final_w = options.target_width.unwrap_or_else(|| {
-            (crop_w as f64 * scale).round() as u32
-        });
+        let final_w = options
+            .target_width
+            .unwrap_or_else(|| (crop_w as f64 * scale).round() as u32);
 
         (final_w, target_h, scale)
     }
@@ -447,7 +454,9 @@ impl PageFinalizer {
 
     fn lerp_rgb(a: &Rgb<u8>, b: &Rgb<u8>, t: f32) -> Rgb<u8> {
         fn lerp(a: u8, b: u8, t: f32) -> u8 {
-            (a as f32 + (b as f32 - a as f32) * t).round().clamp(0.0, 255.0) as u8
+            (a as f32 + (b as f32 - a as f32) * t)
+                .round()
+                .clamp(0.0, 255.0) as u8
         }
 
         Rgb([
@@ -477,7 +486,12 @@ pub fn add_margin_and_clip(
     let width = (right - left + 1).max(1) as u32;
     let height = (bottom - top + 1).max(1) as u32;
 
-    CropRegion { x: left, y: top, width, height }
+    CropRegion {
+        x: left,
+        y: top,
+        width,
+        height,
+    }
 }
 
 // ============================================================
@@ -558,7 +572,8 @@ mod tests {
             Path::new("/output.png"),
             &FinalizeOptions::default(),
             None,
-            0, 0,
+            0,
+            0,
         );
         assert!(matches!(result, Err(FinalizeError::ImageNotFound(_))));
     }
@@ -582,9 +597,7 @@ mod tests {
     #[test]
     fn test_calculate_output_dimensions() {
         let options = FinalizeOptions::default();
-        let (w, h, scale) = PageFinalizer::calculate_output_dimensions(
-            2480, 3508, &options,
-        );
+        let (w, h, scale) = PageFinalizer::calculate_output_dimensions(2480, 3508, &options);
 
         assert_eq!(h, FINAL_TARGET_HEIGHT);
         assert!(scale > 0.0);
@@ -621,16 +634,15 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let output = temp_dir.path().join("finalized.png");
 
-        let options = FinalizeOptions::builder()
-            .target_height(200)
-            .build();
+        let options = FinalizeOptions::builder().target_height(200).build();
 
         let result = PageFinalizer::finalize(
             Path::new("tests/fixtures/with_margins.png"),
             &output,
             &options,
             None,
-            0, 0,
+            0,
+            0,
         );
 
         match result {

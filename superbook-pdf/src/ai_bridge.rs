@@ -1060,7 +1060,7 @@ mod tests {
     #[test]
     fn test_progress_status_sequence() {
         // Simulate progress sequence as would be observed in async execution
-        let statuses = vec![
+        let statuses = [
             ProcessStatus::Preparing,
             ProcessStatus::Running { progress: 0.0 },
             ProcessStatus::Running { progress: 0.25 },
@@ -1389,7 +1389,7 @@ mod tests {
     #[test]
     fn test_ai_tool_clone() {
         let original = AiTool::YomiToku;
-        let cloned = original.clone();
+        let cloned = original;
         assert_eq!(cloned.module_name(), original.module_name());
     }
 
@@ -1403,7 +1403,7 @@ mod tests {
     #[test]
     fn test_log_level_clone() {
         let original = LogLevel::Warn;
-        let cloned = original.clone();
+        let cloned = original;
         assert!(matches!(cloned, LogLevel::Warn));
     }
 
@@ -1499,7 +1499,7 @@ mod tests {
             AiBridgeError::Timeout(Duration::from_secs(60)),
             AiBridgeError::RetriesExhausted,
             AiBridgeError::ToolNotInstalled(AiTool::RealESRGAN),
-            std::io::Error::new(std::io::ErrorKind::Other, "io").into(),
+            std::io::Error::other("io").into(),
         ];
 
         for err in errors {

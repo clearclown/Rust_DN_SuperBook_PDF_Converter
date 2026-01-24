@@ -848,7 +848,7 @@ mod tests {
 
     #[test]
     fn test_print_pdf_writer_default() {
-        let writer = PrintPdfWriter::default();
+        let writer = PrintPdfWriter;
         // Just verify it can be constructed
         let _ = writer;
     }
@@ -1542,7 +1542,7 @@ mod tests {
             PdfWriterError::NoImages,
             PdfWriterError::ImageNotFound(PathBuf::from("/test.png")),
             PdfWriterError::UnsupportedFormat("SVG".to_string()),
-            PdfWriterError::IoError(std::io::Error::new(std::io::ErrorKind::Other, "io")),
+            PdfWriterError::IoError(std::io::Error::other("io")),
             PdfWriterError::GenerationError("gen fail".to_string()),
         ];
 

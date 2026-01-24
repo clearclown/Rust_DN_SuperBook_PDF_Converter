@@ -172,7 +172,9 @@ pub use yomitoku::{
 
 // Phase 1-6: Advanced processing modules
 pub use color_stats::{ColorAnalyzer, ColorStats, ColorStatsError, GlobalColorParam};
-pub use finalize::{FinalizeError, FinalizeOptions, FinalizeOptionsBuilder, FinalizeResult, PageFinalizer};
+pub use finalize::{
+    FinalizeError, FinalizeOptions, FinalizeOptionsBuilder, FinalizeResult, PageFinalizer,
+};
 pub use normalize::{
     ImageNormalizer, NormalizeError, NormalizeOptions, NormalizeOptionsBuilder, NormalizeResult,
     PaddingMode, PaperColor, Resampler,
@@ -467,13 +469,13 @@ mod tests {
 
     #[test]
     fn test_ensure_file_exists_nonexistent() {
-        let result = ensure_file_exists(&PathBuf::from("/nonexistent/file.pdf"));
+        let result = ensure_file_exists(PathBuf::from("/nonexistent/file.pdf"));
         assert!(result.is_err());
     }
 
     #[test]
     fn test_ensure_dir_writable_nonexistent() {
-        let result = ensure_dir_writable(&PathBuf::from("/nonexistent/directory"));
+        let result = ensure_dir_writable(PathBuf::from("/nonexistent/directory"));
         assert!(result.is_err());
     }
 
@@ -585,7 +587,7 @@ mod tests {
         for format in &formats {
             for colorspace in &colorspaces {
                 let opts = ExtractOptions::builder()
-                    .format(format.clone())
+                    .format(*format)
                     .colorspace(*colorspace)
                     .build();
 
@@ -1072,7 +1074,7 @@ mod tests {
         for format in &formats {
             for colorspace in &colorspaces {
                 let _ = ExtractOptions::builder()
-                    .format(format.clone())
+                    .format(*format)
                     .colorspace(*colorspace)
                     .build();
                 count += 1;
@@ -1083,7 +1085,7 @@ mod tests {
 
     #[test]
     fn test_unified_margins_from_margins() {
-        let pages_margins = vec![
+        let pages_margins = [
             Margins {
                 top: 50,
                 bottom: 60,

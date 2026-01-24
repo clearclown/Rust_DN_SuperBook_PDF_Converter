@@ -1432,14 +1432,14 @@ mod tests {
     #[test]
     fn test_algorithm_clone() {
         let original = DeskewAlgorithm::TextLineDetection;
-        let cloned = original.clone();
+        let cloned = original;
         assert!(matches!(cloned, DeskewAlgorithm::TextLineDetection));
     }
 
     #[test]
     fn test_quality_mode_clone() {
         let original = QualityMode::HighQuality;
-        let cloned = original.clone();
+        let cloned = original;
         assert!(matches!(cloned, QualityMode::HighQuality));
     }
 
@@ -1450,7 +1450,7 @@ mod tests {
             DeskewError::InvalidFormat("HEIC not supported".to_string()),
             DeskewError::DetectionFailed("no edges found".to_string()),
             DeskewError::CorrectionFailed("rotation error".to_string()),
-            std::io::Error::new(std::io::ErrorKind::Other, "io error").into(),
+            std::io::Error::other("io error").into(),
         ];
 
         for err in errors {

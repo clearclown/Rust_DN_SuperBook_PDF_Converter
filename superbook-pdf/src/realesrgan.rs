@@ -1112,7 +1112,7 @@ mod tests {
 
             // デフォルトスケールが取得できることを確認
             let default_scale = model.default_scale();
-            assert!(default_scale >= 2 && default_scale <= 4);
+            assert!((2..=4).contains(&default_scale));
         }
     }
 
@@ -1254,7 +1254,7 @@ mod tests {
     #[test]
     fn test_output_format_clone() {
         let original = OutputFormat::Webp { quality: 85 };
-        let cloned = original.clone();
+        let cloned = original;
 
         assert_eq!(cloned.extension(), original.extension());
     }

@@ -155,7 +155,6 @@ pub struct ConvertArgs {
     pub dry_run: bool,
 
     // === Phase 6: Advanced processing options ===
-
     /// Enable internal resolution normalization (4960x7016)
     #[arg(long)]
     pub internal_resolution: bool,
@@ -437,7 +436,7 @@ mod tests {
     #[test]
     fn test_exit_code_clone_copy() {
         let code = ExitCode::ProcessingError;
-        let cloned = code.clone();
+        let cloned = code;
         let copied = code;
         assert_eq!(code, cloned);
         assert_eq!(code, copied);
@@ -793,7 +792,7 @@ mod tests {
     #[test]
     fn test_exit_code_clone() {
         let original = ExitCode::OutputError;
-        let cloned = original.clone();
+        let cloned = original;
         assert_eq!(original, cloned);
     }
 
@@ -1472,9 +1471,13 @@ mod tests {
 
     #[test]
     fn test_internal_resolution_flag() {
-        let cli =
-            Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "--internal-resolution"])
-                .unwrap();
+        let cli = Cli::try_parse_from([
+            "superbook-pdf",
+            "convert",
+            "input.pdf",
+            "--internal-resolution",
+        ])
+        .unwrap();
         if let Commands::Convert(args) = cli.command {
             assert!(args.internal_resolution);
             assert!(args.effective_internal_resolution());
@@ -1483,9 +1486,13 @@ mod tests {
 
     #[test]
     fn test_color_correction_flag() {
-        let cli =
-            Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "--color-correction"])
-                .unwrap();
+        let cli = Cli::try_parse_from([
+            "superbook-pdf",
+            "convert",
+            "input.pdf",
+            "--color-correction",
+        ])
+        .unwrap();
         if let Commands::Convert(args) = cli.command {
             assert!(args.color_correction);
             assert!(args.effective_color_correction());
@@ -1494,9 +1501,13 @@ mod tests {
 
     #[test]
     fn test_offset_alignment_flag() {
-        let cli =
-            Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "--offset-alignment"])
-                .unwrap();
+        let cli = Cli::try_parse_from([
+            "superbook-pdf",
+            "convert",
+            "input.pdf",
+            "--offset-alignment",
+        ])
+        .unwrap();
         if let Commands::Convert(args) = cli.command {
             assert!(args.offset_alignment);
             assert!(args.effective_offset_alignment());

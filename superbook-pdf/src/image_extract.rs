@@ -937,14 +937,14 @@ mod tests {
 
     #[test]
     fn test_all_image_formats() {
-        let formats = vec![
+        let formats = [
             ImageFormat::Png,
             ImageFormat::Jpeg { quality: 90 },
             ImageFormat::Bmp,
             ImageFormat::Tiff,
         ];
 
-        let expected_ext = vec!["png", "jpg", "bmp", "tiff"];
+        let expected_ext = ["png", "jpg", "bmp", "tiff"];
 
         for (format, ext) in formats.iter().zip(expected_ext.iter()) {
             assert_eq!(format.extension(), *ext);
@@ -1133,7 +1133,7 @@ mod tests {
         ];
 
         for fmt in &formats {
-            let options = ExtractOptions::builder().format(fmt.clone()).build();
+            let options = ExtractOptions::builder().format(*fmt).build();
             match (&options.format, fmt) {
                 (ImageFormat::Png, ImageFormat::Png) => {}
                 (ImageFormat::Tiff, ImageFormat::Tiff) => {}
@@ -1450,7 +1450,7 @@ mod tests {
     #[test]
     fn test_image_format_clone() {
         let original = ImageFormat::Jpeg { quality: 92 };
-        let cloned = original.clone();
+        let cloned = original;
         if let ImageFormat::Jpeg { quality } = cloned {
             assert_eq!(quality, 92);
         } else {
@@ -1458,7 +1458,7 @@ mod tests {
         }
 
         let original_png = ImageFormat::Png;
-        let cloned_png = original_png.clone();
+        let cloned_png = original_png;
         assert!(matches!(cloned_png, ImageFormat::Png));
     }
 
@@ -1488,7 +1488,7 @@ mod tests {
     #[test]
     fn test_colorspace_clone() {
         let original = ColorSpace::Cmyk;
-        let cloned = original.clone();
+        let cloned = original;
         assert_eq!(cloned, ColorSpace::Cmyk);
     }
 

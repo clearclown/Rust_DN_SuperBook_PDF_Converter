@@ -736,7 +736,6 @@ impl GroupCropRegion {
     }
 }
 
-
 /// Unified crop regions for odd and even pages
 #[derive(Debug, Clone)]
 pub struct UnifiedCropRegions {
@@ -844,9 +843,7 @@ impl GroupCropAnalyzer {
     }
 
     /// Unify crop regions for odd and even page groups
-    pub fn unify_odd_even_regions(
-        bounding_boxes: &[PageBoundingBox],
-    ) -> UnifiedCropRegions {
+    pub fn unify_odd_even_regions(bounding_boxes: &[PageBoundingBox]) -> UnifiedCropRegions {
         // Split into odd and even groups
         let odd_boxes: Vec<PageBoundingBox> = bounding_boxes
             .iter()
@@ -1667,10 +1664,7 @@ mod tests {
 
         // Verify margins consistency
         let vertical_reduction = result.original_size.1 - result.trimmed_size.1;
-        assert_eq!(
-            vertical_reduction,
-            result.margins_applied.total_vertical() as u32
-        );
+        assert_eq!(vertical_reduction, result.margins_applied.total_vertical());
     }
 
     // ============ Debug Implementation Tests ============
@@ -1812,7 +1806,7 @@ mod tests {
     #[test]
     fn test_content_detection_mode_clone() {
         let original = ContentDetectionMode::EdgeDetection;
-        let cloned = original.clone();
+        let cloned = original;
 
         assert!(matches!(cloned, ContentDetectionMode::EdgeDetection));
     }
@@ -1834,7 +1828,7 @@ mod tests {
             left: 30,
             right: 40,
         };
-        let cloned = original.clone();
+        let cloned = original;
 
         assert_eq!(cloned.top, 10);
         assert_eq!(cloned.bottom, 20);
@@ -1859,7 +1853,7 @@ mod tests {
             width: 200,
             height: 300,
         };
-        let cloned = original.clone();
+        let cloned = original;
 
         assert_eq!(cloned.x, 5);
         assert_eq!(cloned.y, 10);
@@ -2633,7 +2627,7 @@ mod tests {
             assert_eq!(threshold, 200 + i as u8);
             assert_eq!(min_margin, 5 + i as u32);
             // Note: sensitivity is clamped to 0.0-1.0
-            assert!(sensitivity >= 0.0 && sensitivity <= 1.0);
+            assert!((0.0..=1.0).contains(&sensitivity));
         }
     }
 
@@ -2710,7 +2704,12 @@ mod tests {
 
     #[test]
     fn test_page_bounding_box_new() {
-        let rect = ContentRect { x: 100, y: 200, width: 500, height: 600 };
+        let rect = ContentRect {
+            x: 100,
+            y: 200,
+            width: 500,
+            height: 600,
+        };
         let bbox = PageBoundingBox::new(1, rect);
 
         assert_eq!(bbox.page_number, 1);
@@ -2721,7 +2720,12 @@ mod tests {
 
     #[test]
     fn test_page_bounding_box_even() {
-        let rect = ContentRect { x: 50, y: 50, width: 100, height: 100 };
+        let rect = ContentRect {
+            x: 50,
+            y: 50,
+            width: 100,
+            height: 100,
+        };
         let bbox = PageBoundingBox::new(2, rect);
 
         assert_eq!(bbox.page_number, 2);
@@ -2730,9 +2734,33 @@ mod tests {
 
     #[test]
     fn test_page_bounding_box_validity() {
-        let valid = PageBoundingBox::new(1, ContentRect { x: 0, y: 0, width: 100, height: 100 });
-        let invalid_w = PageBoundingBox::new(2, ContentRect { x: 0, y: 0, width: 0, height: 100 });
-        let invalid_h = PageBoundingBox::new(3, ContentRect { x: 0, y: 0, width: 100, height: 0 });
+        let valid = PageBoundingBox::new(
+            1,
+            ContentRect {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 100,
+            },
+        );
+        let invalid_w = PageBoundingBox::new(
+            2,
+            ContentRect {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 100,
+            },
+        );
+        let invalid_h = PageBoundingBox::new(
+            3,
+            ContentRect {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 0,
+            },
+        );
 
         assert!(valid.is_valid());
         assert!(!invalid_w.is_valid());
@@ -2779,9 +2807,15 @@ mod tests {
 
     #[test]
     fn test_decide_group_crop_region_single() {
-        let boxes = vec![
-            PageBoundingBox::new(1, ContentRect { x: 100, y: 100, width: 400, height: 600 }),
-        ];
+        let boxes = vec![PageBoundingBox::new(
+            1,
+            ContentRect {
+                x: 100,
+                y: 100,
+                width: 400,
+                height: 600,
+            },
+        )];
 
         let result = GroupCropAnalyzer::decide_group_crop_region(&boxes);
 
@@ -2797,11 +2831,51 @@ mod tests {
     fn test_decide_group_crop_region_consistent() {
         // All pages have identical bounding boxes
         let boxes = vec![
-            PageBoundingBox::new(1, ContentRect { x: 100, y: 100, width: 400, height: 600 }),
-            PageBoundingBox::new(2, ContentRect { x: 100, y: 100, width: 400, height: 600 }),
-            PageBoundingBox::new(3, ContentRect { x: 100, y: 100, width: 400, height: 600 }),
-            PageBoundingBox::new(4, ContentRect { x: 100, y: 100, width: 400, height: 600 }),
-            PageBoundingBox::new(5, ContentRect { x: 100, y: 100, width: 400, height: 600 }),
+            PageBoundingBox::new(
+                1,
+                ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 400,
+                    height: 600,
+                },
+            ),
+            PageBoundingBox::new(
+                2,
+                ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 400,
+                    height: 600,
+                },
+            ),
+            PageBoundingBox::new(
+                3,
+                ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 400,
+                    height: 600,
+                },
+            ),
+            PageBoundingBox::new(
+                4,
+                ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 400,
+                    height: 600,
+                },
+            ),
+            PageBoundingBox::new(
+                5,
+                ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 400,
+                    height: 600,
+                },
+            ),
         ];
 
         let result = GroupCropAnalyzer::decide_group_crop_region(&boxes);
@@ -2819,11 +2893,51 @@ mod tests {
     fn test_decide_group_crop_region_with_outlier() {
         // Most pages are consistent, one is an outlier
         let boxes = vec![
-            PageBoundingBox::new(1, ContentRect { x: 100, y: 100, width: 400, height: 600 }),
-            PageBoundingBox::new(2, ContentRect { x: 100, y: 100, width: 400, height: 600 }),
-            PageBoundingBox::new(3, ContentRect { x: 100, y: 100, width: 400, height: 600 }),
-            PageBoundingBox::new(4, ContentRect { x: 100, y: 100, width: 400, height: 600 }),
-            PageBoundingBox::new(5, ContentRect { x: 500, y: 500, width: 100, height: 100 }), // Outlier
+            PageBoundingBox::new(
+                1,
+                ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 400,
+                    height: 600,
+                },
+            ),
+            PageBoundingBox::new(
+                2,
+                ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 400,
+                    height: 600,
+                },
+            ),
+            PageBoundingBox::new(
+                3,
+                ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 400,
+                    height: 600,
+                },
+            ),
+            PageBoundingBox::new(
+                4,
+                ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 400,
+                    height: 600,
+                },
+            ),
+            PageBoundingBox::new(
+                5,
+                ContentRect {
+                    x: 500,
+                    y: 500,
+                    width: 100,
+                    height: 100,
+                },
+            ), // Outlier
         ];
 
         let result = GroupCropAnalyzer::decide_group_crop_region(&boxes);
@@ -2838,13 +2952,61 @@ mod tests {
     fn test_unify_odd_even_regions() {
         let boxes = vec![
             // Odd pages
-            PageBoundingBox::new(1, ContentRect { x: 50, y: 100, width: 400, height: 600 }),
-            PageBoundingBox::new(3, ContentRect { x: 50, y: 100, width: 400, height: 600 }),
-            PageBoundingBox::new(5, ContentRect { x: 50, y: 100, width: 400, height: 600 }),
+            PageBoundingBox::new(
+                1,
+                ContentRect {
+                    x: 50,
+                    y: 100,
+                    width: 400,
+                    height: 600,
+                },
+            ),
+            PageBoundingBox::new(
+                3,
+                ContentRect {
+                    x: 50,
+                    y: 100,
+                    width: 400,
+                    height: 600,
+                },
+            ),
+            PageBoundingBox::new(
+                5,
+                ContentRect {
+                    x: 50,
+                    y: 100,
+                    width: 400,
+                    height: 600,
+                },
+            ),
             // Even pages (different left margin due to binding)
-            PageBoundingBox::new(2, ContentRect { x: 150, y: 100, width: 400, height: 600 }),
-            PageBoundingBox::new(4, ContentRect { x: 150, y: 100, width: 400, height: 600 }),
-            PageBoundingBox::new(6, ContentRect { x: 150, y: 100, width: 400, height: 600 }),
+            PageBoundingBox::new(
+                2,
+                ContentRect {
+                    x: 150,
+                    y: 100,
+                    width: 400,
+                    height: 600,
+                },
+            ),
+            PageBoundingBox::new(
+                4,
+                ContentRect {
+                    x: 150,
+                    y: 100,
+                    width: 400,
+                    height: 600,
+                },
+            ),
+            PageBoundingBox::new(
+                6,
+                ContentRect {
+                    x: 150,
+                    y: 100,
+                    width: 400,
+                    height: 600,
+                },
+            ),
         ];
 
         let result = GroupCropAnalyzer::unify_odd_even_regions(&boxes);
@@ -2902,10 +3064,10 @@ mod tests {
         // Upper fence = 110 + 15 = 125
 
         assert!(!GroupCropAnalyzer::is_outlier(100, 100.0, 110.0, 10.0)); // Within range
-        assert!(!GroupCropAnalyzer::is_outlier(85, 100.0, 110.0, 10.0));  // At lower fence
+        assert!(!GroupCropAnalyzer::is_outlier(85, 100.0, 110.0, 10.0)); // At lower fence
         assert!(!GroupCropAnalyzer::is_outlier(125, 100.0, 110.0, 10.0)); // At upper fence
-        assert!(GroupCropAnalyzer::is_outlier(84, 100.0, 110.0, 10.0));   // Below lower fence
-        assert!(GroupCropAnalyzer::is_outlier(126, 100.0, 110.0, 10.0));  // Above upper fence
+        assert!(GroupCropAnalyzer::is_outlier(84, 100.0, 110.0, 10.0)); // Below lower fence
+        assert!(GroupCropAnalyzer::is_outlier(126, 100.0, 110.0, 10.0)); // Above upper fence
     }
 
     #[test]

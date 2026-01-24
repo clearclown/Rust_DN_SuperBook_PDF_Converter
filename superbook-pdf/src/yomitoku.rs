@@ -1186,21 +1186,21 @@ mod tests {
     #[test]
     fn test_text_direction_clone() {
         let original = TextDirection::Vertical;
-        let cloned = original.clone();
+        let cloned = original;
         assert!(matches!(cloned, TextDirection::Vertical));
     }
 
     #[test]
     fn test_language_clone() {
         let original = Language::English;
-        let cloned = original.clone();
+        let cloned = original;
         assert_eq!(cloned.code(), original.code());
     }
 
     #[test]
     fn test_output_format_clone() {
         let original = OutputFormat::Pdf;
-        let cloned = original.clone();
+        let cloned = original;
         assert_eq!(cloned.extension(), original.extension());
     }
 

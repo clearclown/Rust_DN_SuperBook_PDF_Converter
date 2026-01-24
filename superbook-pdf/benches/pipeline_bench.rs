@@ -316,7 +316,13 @@ fn bench_normalize_structures(c: &mut Criterion) {
     });
 
     group.bench_function("PaperColor::new", |b| {
-        b.iter(|| black_box(PaperColor { r: 255, g: 250, b: 245 }))
+        b.iter(|| {
+            black_box(PaperColor {
+                r: 255,
+                g: 250,
+                b: 245,
+            })
+        })
     });
 
     group.finish();
@@ -341,8 +347,8 @@ fn bench_color_stats_structures(c: &mut Criterion) {
 
 /// Benchmark Phase 3: Group crop structures
 fn bench_group_crop_structures(c: &mut Criterion) {
-    use superbook_pdf::{GroupCropRegion, PageBoundingBox, UnifiedCropRegions};
     use superbook_pdf::margin::ContentRect;
+    use superbook_pdf::{GroupCropRegion, PageBoundingBox, UnifiedCropRegions};
 
     let mut group = c.benchmark_group("group_crop_structures");
 
@@ -350,7 +356,12 @@ fn bench_group_crop_structures(c: &mut Criterion) {
         b.iter(|| {
             black_box(PageBoundingBox {
                 page_number: 1,
-                bounding_box: ContentRect { x: 100, y: 100, width: 1800, height: 2400 },
+                bounding_box: ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 1800,
+                    height: 2400,
+                },
                 is_odd: true,
             })
         })

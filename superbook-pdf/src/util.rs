@@ -622,7 +622,7 @@ mod tests {
 
         let results: Vec<_> = (0..1000)
             .into_par_iter()
-            .map(|i| clamp(i as i32, 100, 900))
+            .map(|i| clamp(i, 100, 900))
             .collect();
 
         assert_eq!(results.len(), 1000);

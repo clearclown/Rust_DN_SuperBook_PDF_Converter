@@ -7,13 +7,34 @@ use std::path::PathBuf;
 use std::time::Instant;
 use superbook_pdf::pdf_writer::{OcrLayer, OcrPageText, TextBlock};
 use superbook_pdf::{
-    exit_codes, AiBridgeConfig, Cli, Commands, ConvertArgs, DeskewOptions, ExtractOptions,
-    ImageMarginDetector, ImageProcDeskewer, LopdfExtractor, LopdfReader, MarginOptions,
-    PdfWriterOptions, PrintPdfWriter, RealEsrgan, RealEsrganOptions, SubprocessBridge, YomiToku,
-    YomiTokuOptions,
+    exit_codes,
+    AiBridgeConfig,
+    Cli,
     // Phase 1-6: Advanced processing modules
-    ColorAnalyzer, FinalizeOptions, GroupCropAnalyzer, ImageNormalizer, NormalizeOptions,
-    PageFinalizer, PageOffsetAnalyzer, TesseractPageDetector,
+    ColorAnalyzer,
+    Commands,
+    ConvertArgs,
+    DeskewOptions,
+    ExtractOptions,
+    FinalizeOptions,
+    GroupCropAnalyzer,
+    ImageMarginDetector,
+    ImageNormalizer,
+    ImageProcDeskewer,
+    LopdfExtractor,
+    LopdfReader,
+    MarginOptions,
+    NormalizeOptions,
+    PageFinalizer,
+    PageOffsetAnalyzer,
+    PdfWriterOptions,
+    PrintPdfWriter,
+    RealEsrgan,
+    RealEsrganOptions,
+    SubprocessBridge,
+    TesseractPageDetector,
+    YomiToku,
+    YomiTokuOptions,
 };
 
 fn main() {
@@ -142,7 +163,10 @@ fn print_execution_plan(args: &ConvertArgs, pdf_files: &[PathBuf]) {
     if args.effective_offset_alignment() {
         println!("  8. Page Number Offset Alignment: ENABLED");
     }
-    println!("  9. PDF Generation (output height: {})", args.output_height);
+    println!(
+        "  9. PDF Generation (output height: {})",
+        args.output_height
+    );
     println!();
     println!("Processing Options:");
     println!("  Threads: {}", args.thread_count());
@@ -388,7 +412,11 @@ fn process_single_pdf(
                 }
                 Err(e) => {
                     if verbose {
-                        println!("    Page {}: normalization failed ({}), keeping original", i + 1, e);
+                        println!(
+                            "    Page {}: normalization failed ({}), keeping original",
+                            i + 1,
+                            e
+                        );
                     }
                     std::fs::copy(img_path, &output_path)?;
                     normalized_images.push(output_path);
@@ -406,83 +434,96 @@ fn process_single_pdf(
 
     // Step 7: Color Statistics Analysis and Global Color Correction (if enabled)
     let color_corrected_dir = work_dir.join("color_corrected");
-    let images_after_color: Vec<PathBuf> = if args.effective_color_correction() {
-        if verbose {
-            println!("  Analyzing color statistics...");
-        }
-        std::fs::create_dir_all(&color_corrected_dir)?;
+    let images_after_color: Vec<PathBuf> =
+        if args.effective_color_correction() {
+            if verbose {
+                println!("  Analyzing color statistics...");
+            }
+            std::fs::create_dir_all(&color_corrected_dir)?;
 
-        // Collect color statistics from all pages
-        let mut all_stats = Vec::new();
-        for (i, img_path) in images_after_normalize.iter().enumerate() {
-            match ColorAnalyzer::calculate_stats(img_path) {
-                Ok(stats) => {
-                    if verbose && args.verbose > 1 {
-                        println!(
-                            "    Page {}: paper=({:.1},{:.1},{:.1}) ink=({:.1},{:.1},{:.1})",
-                            i + 1,
-                            stats.paper_r, stats.paper_g, stats.paper_b,
-                            stats.ink_r, stats.ink_g, stats.ink_b
-                        );
+            // Collect color statistics from all pages
+            let mut all_stats = Vec::new();
+            for (i, img_path) in images_after_normalize.iter().enumerate() {
+                match ColorAnalyzer::calculate_stats(img_path) {
+                    Ok(stats) => {
+                        if verbose && args.verbose > 1 {
+                            println!(
+                                "    Page {}: paper=({:.1},{:.1},{:.1}) ink=({:.1},{:.1},{:.1})",
+                                i + 1,
+                                stats.paper_r,
+                                stats.paper_g,
+                                stats.paper_b,
+                                stats.ink_r,
+                                stats.ink_g,
+                                stats.ink_b
+                            );
+                        }
+                        all_stats.push(stats);
                     }
-                    all_stats.push(stats);
-                }
-                Err(e) => {
-                    if verbose {
-                        println!("    Page {}: color analysis failed ({})", i + 1, e);
+                    Err(e) => {
+                        if verbose {
+                            println!("    Page {}: color analysis failed ({})", i + 1, e);
+                        }
                     }
                 }
             }
-        }
 
-        // Calculate global color adjustment parameters
-        if !all_stats.is_empty() {
-            let global_param = ColorAnalyzer::decide_global_adjustment(&all_stats);
-            if verbose {
-                println!(
+            // Calculate global color adjustment parameters
+            if !all_stats.is_empty() {
+                let global_param = ColorAnalyzer::decide_global_adjustment(&all_stats);
+                if verbose {
+                    println!(
                     "    Global adjustment: scale=({:.3},{:.3},{:.3}) offset=({:.1},{:.1},{:.1})",
                     global_param.scale_r, global_param.scale_g, global_param.scale_b,
                     global_param.offset_r, global_param.offset_g, global_param.offset_b
                 );
-            }
+                }
 
-            // Apply color correction to all images
-            let mut corrected_images = Vec::new();
-            for (i, img_path) in images_after_normalize.iter().enumerate() {
-                let output_path = color_corrected_dir.join(format!("page_{:04}.png", i));
-                // Load image, apply adjustment, save
-                match image::open(img_path) {
-                    Ok(img) => {
-                        let mut rgb_img = img.to_rgb8();
-                        ColorAnalyzer::apply_adjustment(&mut rgb_img, &global_param);
-                        if let Err(e) = rgb_img.save(&output_path) {
+                // Apply color correction to all images
+                let mut corrected_images = Vec::new();
+                for (i, img_path) in images_after_normalize.iter().enumerate() {
+                    let output_path = color_corrected_dir.join(format!("page_{:04}.png", i));
+                    // Load image, apply adjustment, save
+                    match image::open(img_path) {
+                        Ok(img) => {
+                            let mut rgb_img = img.to_rgb8();
+                            ColorAnalyzer::apply_adjustment(&mut rgb_img, &global_param);
+                            if let Err(e) = rgb_img.save(&output_path) {
+                                if verbose {
+                                    println!(
+                                        "    Page {}: save failed ({}), keeping original",
+                                        i + 1,
+                                        e
+                                    );
+                                }
+                                std::fs::copy(img_path, &output_path)?;
+                            }
+                            corrected_images.push(output_path);
+                        }
+                        Err(e) => {
                             if verbose {
-                                println!("    Page {}: save failed ({}), keeping original", i + 1, e);
+                                println!(
+                                    "    Page {}: color correction failed ({}), keeping original",
+                                    i + 1,
+                                    e
+                                );
                             }
                             std::fs::copy(img_path, &output_path)?;
+                            corrected_images.push(output_path);
                         }
-                        corrected_images.push(output_path);
-                    }
-                    Err(e) => {
-                        if verbose {
-                            println!("    Page {}: color correction failed ({}), keeping original", i + 1, e);
-                        }
-                        std::fs::copy(img_path, &output_path)?;
-                        corrected_images.push(output_path);
                     }
                 }
-            }
 
-            if verbose {
-                println!("    Color corrected {} images", corrected_images.len());
+                if verbose {
+                    println!("    Color corrected {} images", corrected_images.len());
+                }
+                corrected_images
+            } else {
+                images_after_normalize.clone()
             }
-            corrected_images
         } else {
             images_after_normalize.clone()
-        }
-    } else {
-        images_after_normalize.clone()
-    };
+        };
 
     // Step 8: Tukey Fence Group Crop (if offset_alignment is enabled)
     let cropped_dir = work_dir.join("cropped");
@@ -502,14 +543,18 @@ fn process_single_pdf(
             if verbose && args.verbose > 1 {
                 println!(
                     "    Odd pages: crop region {}x{} at ({},{}) ({} inliers)",
-                    unified.odd_region.width, unified.odd_region.height,
-                    unified.odd_region.left, unified.odd_region.top,
+                    unified.odd_region.width,
+                    unified.odd_region.height,
+                    unified.odd_region.left,
+                    unified.odd_region.top,
                     unified.odd_region.inlier_count
                 );
                 println!(
                     "    Even pages: crop region {}x{} at ({},{}) ({} inliers)",
-                    unified.even_region.width, unified.even_region.height,
-                    unified.even_region.left, unified.even_region.top,
+                    unified.even_region.width,
+                    unified.even_region.height,
+                    unified.even_region.left,
+                    unified.even_region.top,
                     unified.even_region.inlier_count
                 );
             }
@@ -518,7 +563,11 @@ fn process_single_pdf(
             let mut cropped_images = Vec::new();
             for (i, img_path) in images_after_color.iter().enumerate() {
                 let output_path = cropped_dir.join(format!("page_{:04}.png", i));
-                let region = if i % 2 == 0 { &unified.odd_region } else { &unified.even_region };
+                let region = if i % 2 == 0 {
+                    &unified.odd_region
+                } else {
+                    &unified.even_region
+                };
 
                 // Use the crop region to trim the image
                 match image::open(img_path) {
@@ -531,7 +580,11 @@ fn process_single_pdf(
                         );
                         if let Err(e) = cropped.save(&output_path) {
                             if verbose {
-                                println!("    Page {}: crop failed ({}), keeping original", i + 1, e);
+                                println!(
+                                    "    Page {}: crop failed ({}), keeping original",
+                                    i + 1,
+                                    e
+                                );
                             }
                             std::fs::copy(img_path, &output_path)?;
                         }
@@ -539,7 +592,11 @@ fn process_single_pdf(
                     }
                     Err(e) => {
                         if verbose {
-                            println!("    Page {}: image load failed ({}), keeping original", i + 1, e);
+                            println!(
+                                "    Page {}: image load failed ({}), keeping original",
+                                i + 1,
+                                e
+                            );
                         }
                         std::fs::copy(img_path, &output_path)?;
                         cropped_images.push(output_path);
@@ -636,7 +693,11 @@ fn process_single_pdf(
                 }
                 Err(e) => {
                     if verbose {
-                        println!("    Page {}: finalize failed ({}), keeping original", i + 1, e);
+                        println!(
+                            "    Page {}: finalize failed ({}), keeping original",
+                            i + 1,
+                            e
+                        );
                     }
                     std::fs::copy(img_path, &output_path)?;
                     finalized_images.push(output_path);

@@ -319,8 +319,8 @@ impl ImageNormalizer {
             return Err(NormalizeError::ImageNotFound(input_path.to_path_buf()));
         }
 
-        let img = image::open(input_path)
-            .map_err(|e| NormalizeError::InvalidImage(e.to_string()))?;
+        let img =
+            image::open(input_path).map_err(|e| NormalizeError::InvalidImage(e.to_string()))?;
 
         let (orig_w, orig_h) = img.dimensions();
         let rgb_img = img.to_rgb8();
@@ -388,8 +388,8 @@ impl ImageNormalizer {
             return Err(NormalizeError::ImageNotFound(input_path.to_path_buf()));
         }
 
-        let img = image::open(input_path)
-            .map_err(|e| NormalizeError::InvalidImage(e.to_string()))?;
+        let img =
+            image::open(input_path).map_err(|e| NormalizeError::InvalidImage(e.to_string()))?;
 
         let (orig_w, orig_h) = img.dimensions();
         let rgb_img = img.to_rgb8();
@@ -531,7 +531,8 @@ impl ImageNormalizer {
         let top_left = Self::average_patch_color(image, 0, 0, patch_w, patch_h);
         let top_right = Self::average_patch_color(image, w - patch_w, 0, patch_w, patch_h);
         let bottom_left = Self::average_patch_color(image, 0, h - patch_h, patch_w, patch_h);
-        let bottom_right = Self::average_patch_color(image, w - patch_w, h - patch_h, patch_w, patch_h);
+        let bottom_right =
+            Self::average_patch_color(image, w - patch_w, h - patch_h, patch_w, patch_h);
 
         CornerColors {
             top_left,
@@ -639,15 +640,18 @@ impl ImageNormalizer {
         let r = (corners.top_left.r as u16
             + corners.top_right.r as u16
             + corners.bottom_left.r as u16
-            + corners.bottom_right.r as u16) / 4;
+            + corners.bottom_right.r as u16)
+            / 4;
         let g = (corners.top_left.g as u16
             + corners.top_right.g as u16
             + corners.bottom_left.g as u16
-            + corners.bottom_right.g as u16) / 4;
+            + corners.bottom_right.g as u16)
+            / 4;
         let b = (corners.top_left.b as u16
             + corners.top_right.b as u16
             + corners.bottom_left.b as u16
-            + corners.bottom_right.b as u16) / 4;
+            + corners.bottom_right.b as u16)
+            / 4;
 
         PaperColor::new(r as u8, g as u8, b as u8)
     }
@@ -667,12 +671,8 @@ impl ImageNormalizer {
 
         // Create canvas with background
         let mut canvas = match padding_mode {
-            PaddingMode::Solid(color) => {
-                RgbImage::from_pixel(target_w, target_h, Rgb(*color))
-            }
-            PaddingMode::Gradient => {
-                Self::create_gradient_canvas(target_w, target_h, corners)
-            }
+            PaddingMode::Solid(color) => RgbImage::from_pixel(target_w, target_h, Rgb(*color)),
+            PaddingMode::Gradient => Self::create_gradient_canvas(target_w, target_h, corners),
             PaddingMode::Mirror => {
                 // For mirror mode, start with gradient and would add mirroring later
                 Self::create_gradient_canvas(target_w, target_h, corners)
@@ -706,9 +706,7 @@ impl ImageNormalizer {
 
         // Create canvas with background
         let mut canvas = match padding_mode {
-            PaddingMode::Solid(color) => {
-                RgbImage::from_pixel(target_w, target_h, Rgb(*color))
-            }
+            PaddingMode::Solid(color) => RgbImage::from_pixel(target_w, target_h, Rgb(*color)),
             PaddingMode::Gradient | PaddingMode::Mirror => {
                 Self::create_gradient_canvas(target_w, target_h, corners)
             }
@@ -820,7 +818,9 @@ impl ImageNormalizer {
 
     fn lerp_rgb(a: &Rgb<u8>, b: &Rgb<u8>, t: f32) -> Rgb<u8> {
         fn lerp(a: u8, b: u8, t: f32) -> u8 {
-            (a as f32 + (b as f32 - a as f32) * t).round().clamp(0.0, 255.0) as u8
+            (a as f32 + (b as f32 - a as f32) * t)
+                .round()
+                .clamp(0.0, 255.0) as u8
         }
 
         Rgb([
@@ -1048,9 +1048,7 @@ mod tests {
 
     #[test]
     fn test_corner_patch_clamping() {
-        let opts = NormalizeOptions::builder()
-            .corner_patch_percent(50)
-            .build();
+        let opts = NormalizeOptions::builder().corner_patch_percent(50).build();
         assert_eq!(opts.corner_patch_percent, 20); // Clamped to max
     }
 

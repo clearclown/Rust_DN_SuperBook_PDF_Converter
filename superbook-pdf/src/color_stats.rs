@@ -202,8 +202,8 @@ impl ColorAnalyzer {
             return Err(ColorStatsError::ImageNotFound(image_path.to_path_buf()));
         }
 
-        let img = image::open(image_path)
-            .map_err(|e| ColorStatsError::InvalidImage(e.to_string()))?;
+        let img =
+            image::open(image_path).map_err(|e| ColorStatsError::InvalidImage(e.to_string()))?;
 
         let rgb = img.to_rgb8();
         Ok(Self::calculate_stats_from_image(&rgb, 0))
@@ -325,7 +325,10 @@ impl ColorAnalyzer {
         luminances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
         // Calculate median
-        let median = Self::percentile_f64(&luminances.iter().map(|(_, l)| *l).collect::<Vec<_>>(), 50.0);
+        let median = Self::percentile_f64(
+            &luminances.iter().map(|(_, l)| *l).collect::<Vec<_>>(),
+            50.0,
+        );
 
         // Calculate MAD
         let mut deviations: Vec<f64> = luminances.iter().map(|(_, l)| (l - median).abs()).collect();
@@ -344,7 +347,10 @@ impl ColorAnalyzer {
             return stats_list.to_vec();
         }
 
-        valid_indices.iter().map(|&i| stats_list[i].clone()).collect()
+        valid_indices
+            .iter()
+            .map(|&i| stats_list[i].clone())
+            .collect()
     }
 
     /// Decide global color adjustment parameters from filtered stats
@@ -360,13 +366,25 @@ impl ColorAnalyzer {
         }
 
         // Calculate median of paper/ink colors
-        let bg_r = Self::percentile_f64(&filtered.iter().map(|s| s.paper_r).collect::<Vec<_>>(), 50.0);
-        let bg_g = Self::percentile_f64(&filtered.iter().map(|s| s.paper_g).collect::<Vec<_>>(), 50.0);
-        let bg_b = Self::percentile_f64(&filtered.iter().map(|s| s.paper_b).collect::<Vec<_>>(), 50.0);
+        let bg_r = Self::percentile_f64(
+            &filtered.iter().map(|s| s.paper_r).collect::<Vec<_>>(),
+            50.0,
+        );
+        let bg_g = Self::percentile_f64(
+            &filtered.iter().map(|s| s.paper_g).collect::<Vec<_>>(),
+            50.0,
+        );
+        let bg_b = Self::percentile_f64(
+            &filtered.iter().map(|s| s.paper_b).collect::<Vec<_>>(),
+            50.0,
+        );
 
-        let ink_r = Self::percentile_f64(&filtered.iter().map(|s| s.ink_r).collect::<Vec<_>>(), 50.0);
-        let ink_g = Self::percentile_f64(&filtered.iter().map(|s| s.ink_g).collect::<Vec<_>>(), 50.0);
-        let ink_b = Self::percentile_f64(&filtered.iter().map(|s| s.ink_b).collect::<Vec<_>>(), 50.0);
+        let ink_r =
+            Self::percentile_f64(&filtered.iter().map(|s| s.ink_r).collect::<Vec<_>>(), 50.0);
+        let ink_g =
+            Self::percentile_f64(&filtered.iter().map(|s| s.ink_g).collect::<Vec<_>>(), 50.0);
+        let ink_b =
+            Self::percentile_f64(&filtered.iter().map(|s| s.ink_b).collect::<Vec<_>>(), 50.0);
 
         // Calculate linear scale: ink -> 0, paper -> 255
         let (scale_r, offset_r) = Self::linear_scale(bg_r, ink_r);
@@ -428,14 +446,21 @@ impl ColorAnalyzer {
                 if lum >= clip_start {
                     let max = r.max(g).max(b);
                     let min = r.min(g).min(b);
-                    let sat = if max == 0 { 0 } else { (max - min) as i32 * 255 / max as i32 };
+                    let sat = if max == 0 {
+                        0
+                    } else {
+                        (max - min) as i32 * 255 / max as i32
+                    };
 
                     let dist = (r as i32 - params.paper_r as i32).abs()
                         + (g as i32 - params.paper_g as i32).abs()
                         + (b as i32 - params.paper_b as i32).abs();
 
-                    if sat < params.sat_threshold as i32 && dist < params.color_dist_threshold as i32 {
-                        let t = ((lum - clip_start) as f64 / (clip_end - clip_start + 1) as f64).clamp(0.0, 1.0);
+                    if sat < params.sat_threshold as i32
+                        && dist < params.color_dist_threshold as i32
+                    {
+                        let t = ((lum - clip_start) as f64 / (clip_end - clip_start + 1) as f64)
+                            .clamp(0.0, 1.0);
                         let wgt = t * t * (3.0 - 2.0 * t); // Smooth-step
 
                         r = Self::clamp8(r as f64 + (255.0 - r as f64) * wgt);
@@ -448,12 +473,14 @@ impl ColorAnalyzer {
                 let (hue, _sat, _val) = Self::rgb_to_hsv(r, g, b);
                 let max2 = r.max(g).max(b);
                 let min2 = r.min(g).min(b);
-                let sat2 = if max2 == 0 { 0 } else { (max2 - min2) as i32 * 255 / max2 as i32 };
+                let sat2 = if max2 == 0 {
+                    0
+                } else {
+                    (max2 - min2) as i32 * 255 / max2 as i32
+                };
                 let lum2 = Self::luminance(r, g, b);
 
-                let is_pastel_pink = lum2 > 230
-                    && sat2 < 30
-                    && (hue <= 40.0 || hue >= 330.0);
+                let is_pastel_pink = lum2 > 230 && sat2 < 30 && (hue <= 40.0 || hue >= 330.0);
 
                 if is_pastel_pink {
                     r = 255;
@@ -480,21 +507,20 @@ impl ColorAnalyzer {
             })
             .collect();
 
-        let stats: Vec<ColorStats> = stats_results
-            .into_iter()
-            .filter_map(|r| r.ok())
-            .collect();
+        let stats: Vec<ColorStats> = stats_results.into_iter().filter_map(|r| r.ok()).collect();
 
         if stats.is_empty() {
             return Err(ColorStatsError::NoValidPages);
         }
 
         // Split into odd and even pages
-        let odd: Vec<ColorStats> = stats.iter()
+        let odd: Vec<ColorStats> = stats
+            .iter()
             .filter(|s| s.page_number % 2 == 1)
             .cloned()
             .collect();
-        let even: Vec<ColorStats> = stats.iter()
+        let even: Vec<ColorStats> = stats
+            .iter()
             .filter(|s| s.page_number % 2 == 0)
             .cloned()
             .collect();
@@ -634,8 +660,20 @@ mod tests {
     #[test]
     fn test_exclude_outliers_small_list() {
         let stats = vec![
-            ColorStats { page_number: 1, paper_r: 250.0, paper_g: 250.0, paper_b: 250.0, ..Default::default() },
-            ColorStats { page_number: 2, paper_r: 240.0, paper_g: 240.0, paper_b: 240.0, ..Default::default() },
+            ColorStats {
+                page_number: 1,
+                paper_r: 250.0,
+                paper_g: 250.0,
+                paper_b: 250.0,
+                ..Default::default()
+            },
+            ColorStats {
+                page_number: 2,
+                paper_r: 240.0,
+                paper_g: 240.0,
+                paper_b: 240.0,
+                ..Default::default()
+            },
         ];
 
         let filtered = ColorAnalyzer::exclude_outliers(&stats);
@@ -645,11 +683,41 @@ mod tests {
     #[test]
     fn test_exclude_outliers() {
         let stats = vec![
-            ColorStats { page_number: 1, paper_r: 250.0, paper_g: 250.0, paper_b: 250.0, ..Default::default() },
-            ColorStats { page_number: 2, paper_r: 245.0, paper_g: 245.0, paper_b: 245.0, ..Default::default() },
-            ColorStats { page_number: 3, paper_r: 248.0, paper_g: 248.0, paper_b: 248.0, ..Default::default() },
-            ColorStats { page_number: 4, paper_r: 100.0, paper_g: 100.0, paper_b: 100.0, ..Default::default() }, // Outlier
-            ColorStats { page_number: 5, paper_r: 252.0, paper_g: 252.0, paper_b: 252.0, ..Default::default() },
+            ColorStats {
+                page_number: 1,
+                paper_r: 250.0,
+                paper_g: 250.0,
+                paper_b: 250.0,
+                ..Default::default()
+            },
+            ColorStats {
+                page_number: 2,
+                paper_r: 245.0,
+                paper_g: 245.0,
+                paper_b: 245.0,
+                ..Default::default()
+            },
+            ColorStats {
+                page_number: 3,
+                paper_r: 248.0,
+                paper_g: 248.0,
+                paper_b: 248.0,
+                ..Default::default()
+            },
+            ColorStats {
+                page_number: 4,
+                paper_r: 100.0,
+                paper_g: 100.0,
+                paper_b: 100.0,
+                ..Default::default()
+            }, // Outlier
+            ColorStats {
+                page_number: 5,
+                paper_r: 252.0,
+                paper_g: 252.0,
+                paper_b: 252.0,
+                ..Default::default()
+            },
         ];
 
         let filtered = ColorAnalyzer::exclude_outliers(&stats);
@@ -659,14 +727,16 @@ mod tests {
 
     #[test]
     fn test_decide_global_adjustment() {
-        let stats = vec![
-            ColorStats {
-                page_number: 1,
-                paper_r: 250.0, paper_g: 248.0, paper_b: 245.0,
-                ink_r: 10.0, ink_g: 10.0, ink_b: 10.0,
-                ..Default::default()
-            },
-        ];
+        let stats = vec![ColorStats {
+            page_number: 1,
+            paper_r: 250.0,
+            paper_g: 248.0,
+            paper_b: 245.0,
+            ink_r: 10.0,
+            ink_g: 10.0,
+            ink_b: 10.0,
+            ..Default::default()
+        }];
 
         let params = ColorAnalyzer::decide_global_adjustment(&stats);
         assert!(params.scale_r > 0.9);
