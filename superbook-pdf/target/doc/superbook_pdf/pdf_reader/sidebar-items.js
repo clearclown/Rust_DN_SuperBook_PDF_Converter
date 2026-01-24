@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["PdfReaderError"],"struct":["LopdfReader","PdfDocument","PdfMetadata","PdfPage"],"trait":["PdfReader"],"type":["Result"]};

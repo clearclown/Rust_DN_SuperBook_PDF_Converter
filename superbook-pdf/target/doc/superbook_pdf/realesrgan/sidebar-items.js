@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["OutputFormat","RealEsrganError","RealEsrganModel"],"struct":["BatchUpscaleResult","RealEsrgan","RealEsrganOptions","RealEsrganOptionsBuilder","UpscaleResult"],"trait":["RealEsrganProcessor"],"type":["Result"]};

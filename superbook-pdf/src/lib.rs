@@ -126,6 +126,7 @@ pub mod image_extract;
 pub mod margin;
 pub mod normalize;
 pub mod page_number;
+pub mod parallel;
 pub mod pdf_reader;
 pub mod pdf_writer;
 pub mod realesrgan;
@@ -183,6 +184,10 @@ pub use normalize::{
 pub use vertical_detect::{
     detect_book_vertical_writing, detect_vertical_probability, BookVerticalResult,
     VerticalDetectError, VerticalDetectOptions, VerticalDetectResult,
+};
+pub use parallel::{
+    parallel_map, parallel_process, ParallelError, ParallelOptions, ParallelProcessor,
+    ParallelResult,
 };
 
 /// Exit codes for CLI (deprecated: prefer using `ExitCode` enum)

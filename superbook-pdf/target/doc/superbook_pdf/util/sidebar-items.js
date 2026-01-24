@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["clamp","ensure_dir_writable","ensure_file_exists","format_duration","format_file_size","load_image","mm_to_pixels","mm_to_points","percentage","pixels_to_mm","points_to_mm"]};

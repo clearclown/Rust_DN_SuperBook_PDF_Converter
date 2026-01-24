@@ -3,7 +3,10 @@
 //! CLI entry point
 
 use clap::Parser;
+use rayon::prelude::*;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 use superbook_pdf::pdf_writer::{OcrLayer, OcrPageText, TextBlock};
 use superbook_pdf::{
@@ -406,31 +409,49 @@ fn process_single_pdf(
             .target_height(7016)
             .build();
 
-        let mut normalized_images = Vec::new();
-        for (i, img_path) in images_for_pdf.iter().enumerate() {
-            let output_path = normalized_dir.join(format!("page_{:04}.png", i));
-            match ImageNormalizer::normalize(img_path, &output_path, &normalize_options) {
-                Ok(_) => {
-                    normalized_images.push(output_path);
+        // Prepare output paths
+        let output_paths: Vec<PathBuf> = (0..images_for_pdf.len())
+            .map(|i| normalized_dir.join(format!("page_{:04}.png", i)))
+            .collect();
+
+        // Progress counter
+        let completed = Arc::new(AtomicUsize::new(0));
+        let total = images_for_pdf.len();
+
+        // Parallel normalization
+        let results: Vec<_> = images_for_pdf
+            .par_iter()
+            .zip(output_paths.par_iter())
+            .enumerate()
+            .map(|(i, (img_path, output_path))| {
+                let result = ImageNormalizer::normalize(img_path, output_path, &normalize_options);
+
+                // Update progress
+                let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                if verbose && done.is_multiple_of(10) {
+                    print!("\r    Normalizing: {}/{}", done, total);
+                    use std::io::Write;
+                    std::io::stdout().flush().ok();
                 }
-                Err(e) => {
-                    if verbose {
-                        println!(
-                            "    Page {}: normalization failed ({}), keeping original",
-                            i + 1,
-                            e
-                        );
+
+                match result {
+                    Ok(_) => output_path.clone(),
+                    Err(e) => {
+                        if verbose && args.verbose > 1 {
+                            eprintln!("\n    Page {}: normalization failed ({})", i + 1, e);
+                        }
+                        // Copy original on failure
+                        std::fs::copy(img_path, output_path).ok();
+                        output_path.clone()
                     }
-                    std::fs::copy(img_path, &output_path)?;
-                    normalized_images.push(output_path);
                 }
-            }
-        }
+            })
+            .collect();
 
         if verbose {
-            println!("    Normalized {} images", normalized_images.len());
+            println!("\r    Normalized {} images    ", results.len());
         }
-        normalized_images
+        results
     } else {
         images_for_pdf.clone()
     };

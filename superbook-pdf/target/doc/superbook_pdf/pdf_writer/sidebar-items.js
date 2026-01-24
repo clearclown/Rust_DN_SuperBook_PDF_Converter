@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ImageCompression","PageSizeMode","PdfWriterError"],"struct":["OcrLayer","OcrPageText","PdfWriterOptions","PdfWriterOptionsBuilder","PrintPdfWriter","TextBlock"],"trait":["PdfWriter"],"type":["Result"]};

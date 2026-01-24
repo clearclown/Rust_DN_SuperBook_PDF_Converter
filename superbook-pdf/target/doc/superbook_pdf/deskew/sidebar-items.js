@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DeskewAlgorithm","DeskewError","QualityMode"],"struct":["DeskewOptions","DeskewOptionsBuilder","DeskewResult","ImageProcDeskewer","SkewDetection"],"trait":["Deskewer"],"type":["Result"]};
