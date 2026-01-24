@@ -692,4 +692,132 @@ mod tests {
             assert!(result.is_ok());
         }
     }
+
+    // ============ More edge case tests ============
+
+    #[test]
+    fn test_large_block_count() {
+        // Block count larger than image width/height
+        let image: GrayImage = ImageBuffer::from_fn(50, 50, |_, _| Luma([128u8]));
+        let options = VerticalDetectOptions {
+            block_count: 100, // More blocks than pixels
+            ..Default::default()
+        };
+
+        let result = detect_vertical_probability(&image, &options);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_extreme_threshold() {
+        let image: GrayImage = ImageBuffer::from_fn(100, 100, |_, _| Luma([128u8]));
+
+        // Very low threshold
+        let options_low = VerticalDetectOptions {
+            black_threshold: 1,
+            ..Default::default()
+        };
+        let result_low = detect_vertical_probability(&image, &options_low);
+        assert!(result_low.is_ok());
+
+        // Very high threshold
+        let options_high = VerticalDetectOptions {
+            black_threshold: 254,
+            ..Default::default()
+        };
+        let result_high = detect_vertical_probability(&image, &options_high);
+        assert!(result_high.is_ok());
+    }
+
+    #[test]
+    fn test_vertical_threshold_extremes() {
+        let image: GrayImage = ImageBuffer::from_fn(100, 100, |_, _| Luma([255u8]));
+
+        // Threshold 0.0 - always vertical
+        let options_zero = VerticalDetectOptions {
+            vertical_threshold: 0.0,
+            ..Default::default()
+        };
+        let result_zero = detect_vertical_probability(&image, &options_zero).unwrap();
+        assert!(result_zero.is_vertical);
+
+        // Threshold 1.0 - never vertical
+        let options_one = VerticalDetectOptions {
+            vertical_threshold: 1.0,
+            ..Default::default()
+        };
+        let result_one = detect_vertical_probability(&image, &options_one).unwrap();
+        assert!(!result_one.is_vertical);
+    }
+
+    #[test]
+    fn test_book_result_fields() {
+        let images: Vec<GrayImage> = (0..5)
+            .map(|_| ImageBuffer::from_fn(100, 100, |_, _| Luma([255u8])))
+            .collect();
+
+        let options = VerticalDetectOptions::default();
+        let result = detect_book_vertical_writing(&images, &options).unwrap();
+
+        assert_eq!(result.page_count, 5);
+        assert_eq!(result.page_results.len(), 5);
+        assert!(result.vertical_probability >= 0.0);
+        assert!(result.vertical_probability <= 1.0);
+    }
+
+    #[test]
+    fn test_book_mixed_results() {
+        // Create images with different characteristics
+        let horizontal_image: GrayImage = ImageBuffer::from_fn(100, 100, |_, y| {
+            if y % 10 < 5 {
+                Luma([0u8])
+            } else {
+                Luma([255u8])
+            }
+        });
+
+        let vertical_image: GrayImage = ImageBuffer::from_fn(100, 100, |x, _| {
+            if x % 10 < 5 {
+                Luma([0u8])
+            } else {
+                Luma([255u8])
+            }
+        });
+
+        let images = vec![horizontal_image.clone(), vertical_image, horizontal_image];
+        let options = VerticalDetectOptions::default();
+
+        let result = detect_book_vertical_writing(&images, &options).unwrap();
+        assert_eq!(result.page_count, 3);
+    }
+
+    #[test]
+    fn test_rotate_90_clockwise() {
+        let image: GrayImage = ImageBuffer::from_fn(20, 10, |x, y| Luma([(x + y * 10) as u8]));
+
+        let rotated = rotate_90_clockwise(&image);
+
+        // After 90° clockwise: new_width = old_height, new_height = old_width
+        assert_eq!(rotated.width(), 10);
+        assert_eq!(rotated.height(), 20);
+    }
+
+    #[test]
+    fn test_result_horizontal_probability() {
+        let result = VerticalDetectResult {
+            vertical_probability: 0.3,
+            horizontal_score: 0.7,
+            vertical_score: 0.3,
+            is_vertical: false,
+        };
+
+        assert!((result.horizontal_probability() - 0.7).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_error_debug_impl() {
+        let err = VerticalDetectError::InvalidImage("test".to_string());
+        let debug_str = format!("{:?}", err);
+        assert!(debug_str.contains("InvalidImage"));
+    }
 }
