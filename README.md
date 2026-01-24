@@ -432,3 +432,128 @@ Windows 上の Chrome や Acrobat Reader は、大量のページがある書籍
 
 糸冬了！！
 
+---
+
+# 11. Linux 対応版について (Fork)
+
+このリポジトリは、[dnobori/DN_SuperBook_PDF_Converter](https://github.com/dnobori/DN_SuperBook_PDF_Converter) の Linux 対応版フォークです。
+
+## 11.1. Linux (Podman/Docker) での実行
+
+Podman または Docker を使用して、NVIDIA GPU 対応の Linux 環境で実行できます。
+
+### クイックスタート
+
+```bash
+# リポジトリをクローン
+git clone --recursive https://github.com/clearclown/DN_SuperBook_PDF_Converter_Linux.git
+cd DN_SuperBook_PDF_Converter_Linux
+
+# Task をインストール (https://taskfile.dev/)
+# Ubuntu/Debian: sudo snap install task --classic
+
+# 環境確認
+task check
+
+# コンテナをビルド
+task build
+
+# PDF 変換を実行
+task convert INPUT_DIR=./examples/00_before OUTPUT_DIR=./examples/02_after
+```
+
+### 必要要件
+
+- **OS:** Linux (Ubuntu 22.04+ 推奨)
+- **Container Runtime:** Podman または Docker
+- **GPU:** NVIDIA GPU + NVIDIA Container Toolkit (CDI 対応)
+
+### 利用可能なタスク
+
+```bash
+task --list          # 全タスク一覧
+task setup           # NVIDIA Container Toolkit のセットアップ
+task build           # コンテナイメージのビルド
+task convert         # PDF 変換 (OCR なし)
+task convert-ocr     # PDF 変換 (日本語 OCR あり)
+task shell           # コンテナ内シェルを起動
+```
+
+詳細は `Taskfile.yml` を参照してください。
+
+---
+
+# 12. Rust 完全リライト計画 (Next Generation)
+
+現在、本ソフトウェアを Rust で完全に書き直す計画が進行中です。
+
+## 12.1. 動機
+
+- **メモリ効率:** ストリーミング処理によるメモリ使用量の最適化
+- **パフォーマンス:** Rust の安全性と速度を活用
+- **配布の簡易化:** 単一バイナリによる配布 (AppImage 等)
+- **クロスプラットフォーム:** Linux/macOS/Windows のネイティブサポート
+
+## 12.2. 新機能
+
+### CLI 進捗表示
+
+```
+================================================================================
+[ファイル 1/3] イラン現代史.pdf
+================================================================================
+ステージ: AI高画質化中 (RealESRGAN)
+ページ進捗: [████████████████░░░░░░░░░░░░░░] 67% (134/200)
+現在の処理: page_0134.bmp
+残り時間: 約 3 分
+--------------------------------------------------------------------------------
+```
+
+### Web ダッシュボード GUI
+
+localhost で動作するシンプルな Web UI を提供予定:
+
+- ドラッグ & ドロップによる PDF アップロード
+- リアルタイム進捗表示 (SSE)
+- 処理結果のダウンロード
+
+詳細: [GitHub Issue #25](https://github.com/clearclown/DN_SuperBook_PDF_Converter_Linux/issues/25)
+
+## 12.3. 開発ロードマップ
+
+| Phase | 内容 | Issue |
+|-------|------|-------|
+| Phase 1 | プロジェクト基盤構築 | [#20](https://github.com/clearclown/DN_SuperBook_PDF_Converter_Linux/issues/20) |
+| Phase 2 | PDF 処理コア実装 | [#21](https://github.com/clearclown/DN_SuperBook_PDF_Converter_Linux/issues/21) |
+| Phase 3 | 画像処理アルゴリズム | [#22](https://github.com/clearclown/DN_SuperBook_PDF_Converter_Linux/issues/22) |
+| Phase 4 | Python AI 連携 | [#23](https://github.com/clearclown/DN_SuperBook_PDF_Converter_Linux/issues/23) |
+| Phase 5 | 最適化と配布準備 | [#24](https://github.com/clearclown/DN_SuperBook_PDF_Converter_Linux/issues/24) |
+
+マスターロードマップ: [GitHub Issue #19](https://github.com/clearclown/DN_SuperBook_PDF_Converter_Linux/issues/19)
+
+## 12.4. TDD 開発
+
+仕様ドリブン TDD アプローチを採用しています:
+
+```
+superbook-pdf/
+└── specs/
+    ├── 01-cli.spec.md          # CLI 仕様
+    ├── 02-pdf-reader.spec.md   # PDF 読み込み仕様
+    ├── 03-pdf-writer.spec.md   # PDF 書き出し仕様
+    ├── 04-image-extract.spec.md # 画像抽出仕様
+    ├── 05-deskew.spec.md       # 傾き補正仕様
+    ├── 06-margin.spec.md       # マージン処理仕様
+    ├── 07-page-number.spec.md  # ページ番号検出仕様
+    ├── 08-ai-bridge.spec.md    # AI ツール連携仕様
+    └── 09-realesrgan.spec.md   # RealESRGAN 統合仕様
+```
+
+## 12.5. 貢献
+
+Issue や Pull Request は大歓迎です。詳細は [CLAUDE.md](./CLAUDE.md) を参照してください。
+
+---
+
+*Linux 対応版は [clearclown](https://github.com/clearclown) によってメンテナンスされています。*
+

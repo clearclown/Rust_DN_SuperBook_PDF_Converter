@@ -503,9 +503,19 @@ public class PdfYomitokuLib
         Encoding? inputEncoding = null, Encoding? outputEncoding = null, Encoding? errorEncoding = null,
         CancellationToken cancel = default)
     {
+        string activateCommand;
+        if (PlatformToolResolver.IsWindows)
+        {
+            activateCommand = @".\venv\Scripts\activate";
+        }
+        else
+        {
+            // Linux/Mac: source コマンドを使用
+            activateCommand = "source ./venv/bin/activate";
+        }
+
         return await RunBatchCommandsDirectAsync(
-            BuildLines(@".\venv\Scripts\activate",
-            commandLines),
+            BuildLines(activateCommand, commandLines),
             timeout,
             throwOnErrorExitCode,
             printTag,
@@ -524,9 +534,11 @@ public class PdfYomitokuLib
     {
         if (easyOutputMaxSize <= 0) easyOutputMaxSize = CoresConfig.DefaultAiUtilSettings.DefaultMaxStdOutBufferSize;
 
-        string win32cmd = Env.Win32_SystemDir._CombinePath("cmd.exe");
+        // プラットフォームに応じたシェルコマンドを取得
+        string shellCmd = PlatformToolResolver.GetShellCommand();
+        string exitCommand = PlatformToolResolver.IsWindows ? "exit" : "exit 0";
 
-        commandLines = BuildLines(commandLines, "exit");
+        commandLines = BuildLines(commandLines, exitCommand);
 
         string tmp1 = "";
         if (printTag._IsFilled())
@@ -535,7 +547,7 @@ public class PdfYomitokuLib
         }
         string printTagMain = $"[YomiToku{tmp1}]";
 
-        EasyExecResult ret = await EasyExec.ExecAsync(win32cmd, "", this.YomiTokuPythonBaseDir,
+        EasyExecResult ret = await EasyExec.ExecAsync(shellCmd, "", this.YomiTokuPythonBaseDir,
             easyInputStr: commandLines,
             flags: ExecFlags.Default | ExecFlags.EasyPrintRealtimeStdOut | ExecFlags.EasyPrintRealtimeStdErr,
             timeout: timeout, cancel: cancel, throwOnErrorExitCode: true,
@@ -1824,7 +1836,7 @@ public static class SuperPdfUtil
     public const int internalHighResImgWidth = 4960;
     public const int internalHighResImgHeight = 7016;
 
-    public static async Task<bool> PerformPdfAsync(string srcPdfPath, string dstPdfPath, SuperPerformPdfOptions? options = null, bool useOkFile = true, CancellationToken cancel = default)
+    public static async Task<bool> PerformPdfAsync(string srcPdfPath, string dstPdfPath, SuperPerformPdfOptions? options = null, ProgressTracker? progress = null, bool useOkFile = true, CancellationToken cancel = default)
     {
         if (srcPdfPath._IsSamei(dstPdfPath))
         {
@@ -1845,9 +1857,10 @@ public static class SuperPdfUtil
             }
         }
 
+        progress?.SetStage(ProcessingStage.Initializing);
         Con.WriteLine($"[PerformPdfAsync]: Starting '{srcPdfPath}' -> '{dstPdfPath}' ...");
 
-        var result = await PerformPdfMainAsync(srcPdfPath, dstPdfPath, options, cancel: cancel);
+        var result = await PerformPdfMainAsync(srcPdfPath, dstPdfPath, options, progress, cancel: cancel);
 
         result.Options = options;
 
@@ -1861,7 +1874,7 @@ public static class SuperPdfUtil
         return true;
     }
 
-    static async Task<SuperPdfResult> PerformPdfMainAsync(string srcPdfPath, string dstPdfPath, SuperPerformPdfOptions? options = null, CancellationToken cancel = default)
+    static async Task<SuperPdfResult> PerformPdfMainAsync(string srcPdfPath, string dstPdfPath, SuperPerformPdfOptions? options = null, ProgressTracker? progress = null, CancellationToken cancel = default)
     {
         options ??= new();
 

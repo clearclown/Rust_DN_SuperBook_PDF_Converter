@@ -198,7 +198,7 @@ public class ImageMagickUtil
             await Lfs.DeleteFileIfExistsAsync(file.FullPath, raiseException: true, cancel: cancel);
         }
 
-        string dstStr = (PP.RemoveLastSeparatorChar(dstDir) + @"\page_%05d" + ext)._EnsureQuotation();
+        string dstStr = (PP.RemoveLastSeparatorChar(dstDir) + "/page_%05d" + ext)._EnsureQuotation();
 
         string bmpOptions = "-depth 8 -type TrueColor BMP3:";
 

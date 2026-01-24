@@ -1,0 +1,64 @@
+version: "3.8"
+
+services:
+  superbook-converter:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: superbook-pdf-converter
+
+    # NVIDIA GPU support
+    # Podman uses CDI (Container Device Interface) for GPU access
+    devices:
+      - nvidia.com/gpu=all
+
+    # Alternative: Use security-opt for older podman versions
+    # security_opt:
+    #   - label=disable
+
+    # Volume mounts
+    volumes:
+      # Input PDFs (read-only)
+      - ./examples/00_before:/data/input:ro
+      # Output directory (read-write)
+      - ./examples/02_after:/data/output:rw
+      # Processing temp directory (for large files)
+      - superbook-temp:/tmp/superbook
+
+    # Environment variables
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - CUDA_VISIBLE_DEVICES=0
+      - TZ=Asia/Tokyo
+
+    # Resource limits (adjust based on your GPU VRAM)
+    # 3050 Ti has 4GB VRAM
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    # Keep container running for interactive use
+    stdin_open: true
+    tty: true
+
+    # Working directory inside container
+    working_dir: /data
+
+  # Optional: Web UI service (for future enhancement)
+  # superbook-webui:
+  #   build:
+  #     context: .
+  #     dockerfile: Containerfile.webui
+  #   ports:
+  #     - "8080:8080"
+  #   depends_on:
+  #     - superbook-converter
+
+volumes:
+  superbook-temp:
+    driver: local

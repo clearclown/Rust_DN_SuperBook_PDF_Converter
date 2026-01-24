@@ -30,24 +30,32 @@ namespace SuperBookTools.App
 {
     public static class SuperBookExternalTools
     {
+        // Windows用の外部ツールパス（external_tools配下）
+        private static readonly string WinMagickPath = Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\ImageMagick-portable-Q16-HDRI-x64\magick.exe");
+        private static readonly string WinMogrifyPath = Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\ImageMagick-portable-Q16-HDRI-x64\mogrify.exe");
+        private static readonly string WinExifToolPath = Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\exiftool-13.30_64\exiftool.exe");
+        private static readonly string WinQpdfPath = Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\QPDF\bin\qpdf.exe");
+        private static readonly string WinPdfcpuPath = Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\pdfcpu\pdfcpu.exe");
+
         public static readonly ImageMagickUtil ImageMagick = new ImageMagickUtil(new ImageMagickOptions(
-            Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\ImageMagick-portable-Q16-HDRI-x64\magick.exe"),
-            Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\ImageMagick-portable-Q16-HDRI-x64\mogrify.exe"),
-            Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\exiftool-13.30_64\exiftool.exe"),
-            Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\QPDF\bin\qpdf.exe"),
-            Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\pdfcpu\pdfcpu.exe")
+            PlatformToolResolver.ResolveMagickPath(WinMagickPath),
+            PlatformToolResolver.ResolveToolPath(WinMogrifyPath, "/usr/bin/mogrify"),
+            PlatformToolResolver.ResolveExifToolPath(WinExifToolPath),
+            PlatformToolResolver.ResolveQpdfPath(WinQpdfPath),
+            PlatformToolResolver.ResolvePdfcpuPath(WinPdfcpuPath)
         ));
 
         public static readonly FfMpegUtil FfMpeg = new FfMpegUtil(new FfMpegUtilOptions(
-            Path.Combine(Env.AppRootDir, @"_dummy.exe"),
-            Path.Combine(Env.AppRootDir, @"_dummy.exe")));
+            PlatformToolResolver.ResolveToolPath(Path.Combine(Env.AppRootDir, @"_dummy.exe"), "/usr/bin/ffmpeg"),
+            PlatformToolResolver.ResolveToolPath(Path.Combine(Env.AppRootDir, @"_dummy.exe"), "/usr/bin/ffprobe")));
 
-        public static readonly PdfYomitokuLib YomiToku = new PdfYomitokuLib(Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\yomitoku"));
+        public static readonly PdfYomitokuLib YomiToku = new PdfYomitokuLib(
+            PlatformToolResolver.NormalizePath(Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\yomitoku")));
 
         public static readonly AiUtilBasicSettings Settings = new AiUtilBasicSettings
         {
-            AiTest_RealEsrgan_BaseDir = Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\RealEsrgan\RealEsrgan_Repo"),
-            AiTest_TesseractOCR_Data_Dir = Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\TesseractOCR_Data"),
+            AiTest_RealEsrgan_BaseDir = PlatformToolResolver.NormalizePath(Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\RealEsrgan\RealEsrgan_Repo")),
+            AiTest_TesseractOCR_Data_Dir = PlatformToolResolver.NormalizePath(Path.Combine(Env.AppRootDir, @"..\external_tools\external_tools\image_tools\TesseractOCR_Data")),
         };
         public static readonly AiTask Task = new AiTask(Settings, FfMpeg);
 
@@ -106,7 +114,12 @@ namespace SuperBookTools.App
             int numError = 0;
             int numSkip = 0;
 
-            $"Total {numTotal} Files"._Error();
+            // 進捗トラッカーを初期化
+            var progressTracker = new ProgressTracker();
+
+            Console.WriteLine();
+            Console.WriteLine($"Total {numTotal} Files");
+            Console.WriteLine();
 
             int currentNumber = 0;
 
@@ -118,24 +131,27 @@ namespace SuperBookTools.App
                 string relativePath = PP.GetRelativeFileName(src.FullPath, srcDir);
                 string dstPath = PP.Combine(dstDir, relativePath);
 
-                $"<< {currentNumber} / {numTotal} >> '{src.FullPath}' Start"._Error();
+                // 進捗表示: ファイル開始
+                progressTracker.StartFile(currentNumber, numTotal, src.Name);
 
                 try
                 {
-                    if (await SuperPdfUtil.PerformPdfAsync(src.FullPath, dstPath, options) == false)
+                    if (await SuperPdfUtil.PerformPdfAsync(src.FullPath, dstPath, options, progressTracker) == false)
                     {
                         numSkip++;
-                        $"<< {currentNumber} / {numTotal} >> '{src.FullPath}' Skip"._Error();
+                        progressTracker.SetStage(ProcessingStage.Completed);
+                        Console.WriteLine($"[スキップ] {src.Name}");
                     }
                     else
                     {
                         numOk++;
-                        $"<< {currentNumber} / {numTotal} >> '{src.FullPath}' OK"._Error();
+                        progressTracker.CompleteFile();
+                        Console.WriteLine($"[完了] {src.Name}");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Con.WriteLine($"<< {currentNumber} / {numTotal} >> Error: {src.FullPath} -> {dstPath}");
+                    Console.WriteLine($"[エラー] {src.Name} -> {dstPath}");
                     ex._Error();
                     errorFilesList.Add(src.FullPath);
                     numError++;
@@ -153,14 +169,16 @@ namespace SuperBookTools.App
 
             if (errorFilesList.Count >= 1)
             {
-                $"--- Error files ---"._Error();
+                Console.WriteLine();
+                Console.WriteLine("--- エラーファイル一覧 ---");
                 foreach (var errFile in errorFilesList)
                 {
-                    $"- {errFile}"._Error();
+                    Console.WriteLine($"  - {errFile}");
                 }
             }
 
-            $"\n\n<< ConvertPdf Result >>\nnumTotal = {numTotal}, numSkip = {numSkip}, numOk = {numOk}, numError = {numError}\n\n"._Error();
+            // 最終結果サマリーを表示
+            ProgressTracker.PrintSummary(numTotal, numOk, numSkip, numError);
 
             return 0;
         }

@@ -4364,8 +4364,15 @@ public class AiUtilBasicEngine : AsyncService
         Encoding? inputEncoding = null, Encoding? outputEncoding = null, Encoding? errorEncoding = null,
         CancellationToken cancel = default)
     {
+        // Platform-specific venv activation:
+        // Linux: source ./venv/bin/activate
+        // Windows: .\venv\Scripts\activate
+        string activateCmd = Env.IsUnix
+            ? "source ./venv/bin/activate"
+            : @".\venv\Scripts\activate";
+
         return await RunBatchCommandsDirectAsync(
-            BuildLines(@".\venv\Scripts\activate",
+            BuildLines(activateCmd,
             commandLines),
             timeout,
             throwOnErrorExitCode,
@@ -4385,7 +4392,8 @@ public class AiUtilBasicEngine : AsyncService
     {
         if (easyOutputMaxSize <= 0) easyOutputMaxSize = CoresConfig.DefaultAiUtilSettings.DefaultMaxStdOutBufferSize;
 
-        string win32cmd = Env.Win32_SystemDir._CombinePath("cmd.exe");
+        // Use platform-appropriate shell: /bin/bash on Linux/Unix, cmd.exe on Windows
+        string shellCmd = Env.IsUnix ? "/bin/bash" : Env.Win32_SystemDir._CombinePath("cmd.exe");
 
         commandLines = BuildLines(commandLines, "exit");
 
@@ -4396,7 +4404,7 @@ public class AiUtilBasicEngine : AsyncService
         }
         string printTagMain = $"[{this.SimpleAiName}{tmp1}]";
 
-        EasyExecResult ret = await EasyExec.ExecAsync(win32cmd, "", this.BaseDirPath,
+        EasyExecResult ret = await EasyExec.ExecAsync(shellCmd, "", this.BaseDirPath,
             easyInputStr: commandLines,
             flags: ExecFlags.Default | ExecFlags.EasyPrintRealtimeStdOut | ExecFlags.EasyPrintRealtimeStdErr,
             timeout: timeout, cancel: cancel, throwOnErrorExitCode: true,

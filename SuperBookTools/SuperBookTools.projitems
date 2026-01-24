@@ -13,5 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="$(MSBuildThisFileDirectory)Basic\SuperPdfUtil.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Basic\PlatformToolResolver.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Basic\ProgressTracker.cs" />
   </ItemGroup>
 </Project>
