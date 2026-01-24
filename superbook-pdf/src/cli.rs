@@ -133,8 +133,12 @@ pub struct ConvertArgs {
     pub jpeg_quality: u8,
 
     /// Number of parallel threads
-    #[arg(short, long)]
+    #[arg(short = 't', long)]
     pub threads: Option<usize>,
+
+    /// Chunk size for memory-controlled parallel processing (0 = process all at once)
+    #[arg(long, default_value_t = 0)]
+    pub chunk_size: usize,
 
     /// Enable GPU processing
     #[arg(short, long, default_value_t = true)]
@@ -1454,6 +1458,54 @@ mod tests {
                 .unwrap();
         if let Commands::Convert(args) = cli.command {
             assert_eq!(args.threads, Some(128));
+        }
+    }
+
+    // ============ Chunk size tests ============
+
+    #[test]
+    fn test_chunk_size_default() {
+        let cli = Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf"]).unwrap();
+        if let Commands::Convert(args) = cli.command {
+            assert_eq!(args.chunk_size, 0);
+        }
+    }
+
+    #[test]
+    fn test_chunk_size_explicit() {
+        let cli =
+            Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "--chunk-size", "10"])
+                .unwrap();
+        if let Commands::Convert(args) = cli.command {
+            assert_eq!(args.chunk_size, 10);
+        }
+    }
+
+    #[test]
+    fn test_chunk_size_large() {
+        let cli =
+            Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "--chunk-size", "100"])
+                .unwrap();
+        if let Commands::Convert(args) = cli.command {
+            assert_eq!(args.chunk_size, 100);
+        }
+    }
+
+    #[test]
+    fn test_chunk_size_with_threads() {
+        let cli = Cli::try_parse_from([
+            "superbook-pdf",
+            "convert",
+            "input.pdf",
+            "--threads",
+            "4",
+            "--chunk-size",
+            "20",
+        ])
+        .unwrap();
+        if let Commands::Convert(args) = cli.command {
+            assert_eq!(args.threads, Some(4));
+            assert_eq!(args.chunk_size, 20);
         }
     }
 
