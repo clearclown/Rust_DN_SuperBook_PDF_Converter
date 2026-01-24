@@ -32,6 +32,8 @@ use superbook_pdf::{
     PageOffsetAnalyzer,
     PdfWriterOptions,
     PrintPdfWriter,
+    // Progress tracking
+    ProgressTracker,
     RealEsrgan,
     RealEsrganOptions,
     SubprocessBridge,
@@ -86,6 +88,10 @@ fn run_convert(args: &ConvertArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     let verbose = args.verbose > 0;
 
+    // Track processing results
+    let mut ok_count = 0usize;
+    let mut error_count = 0usize;
+
     // Process each PDF file
     for (idx, pdf_path) in pdf_files.iter().enumerate() {
         if verbose {
@@ -97,16 +103,27 @@ fn run_convert(args: &ConvertArgs) -> Result<(), Box<dyn std::error::Error>> {
             );
         }
 
-        process_single_pdf(pdf_path, args)?;
+        match process_single_pdf(pdf_path, args) {
+            Ok(()) => ok_count += 1,
+            Err(e) => {
+                eprintln!("Error processing {}: {}", pdf_path.display(), e);
+                error_count += 1;
+                // Continue processing other files
+            }
+        }
     }
 
     let elapsed = start_time.elapsed();
+
+    // Print summary
     if !args.quiet {
-        println!(
-            "Completed {} file(s) in {:.2}s",
-            pdf_files.len(),
-            elapsed.as_secs_f64()
-        );
+        ProgressTracker::print_summary(pdf_files.len(), ok_count, 0, error_count);
+        println!("Total time: {:.2}s", elapsed.as_secs_f64());
+    }
+
+    // Return error if any file failed
+    if error_count > 0 {
+        return Err(format!("{} file(s) failed to process", error_count).into());
     }
 
     Ok(())
