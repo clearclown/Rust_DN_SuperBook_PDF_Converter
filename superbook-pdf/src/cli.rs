@@ -106,6 +106,10 @@ pub struct ConvertArgs {
     #[arg(default_value = "./output")]
     pub output: PathBuf,
 
+    /// Configuration file path (TOML format)
+    #[arg(short = 'c', long)]
+    pub config: Option<PathBuf>,
+
     /// Enable Japanese OCR (YomiToku)
     #[arg(short, long)]
     pub ocr: bool,

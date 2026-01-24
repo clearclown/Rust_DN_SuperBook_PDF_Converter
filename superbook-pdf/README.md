@@ -4,7 +4,7 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1157_passed-green.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1195_passed-green.svg)]()
 
 ## ステータス
 
@@ -13,7 +13,7 @@
 | 項目 | 状態 |
 |------|------|
 | コード行数 | 28,000行 |
-| テスト | 1,157件 全てパス |
+| テスト | 1,195件 全てパス |
 | Clippy警告 | 0件 |
 | メモリ使用量 | 0.4-0.8 GB (C#版の1/30) |
 
@@ -196,11 +196,22 @@ cargo fmt -- --check
 - [x] PDF画像埋め込み
 - [x] Poppler fallback (ImageMagickなしでも動作)
 
-### 進行中 (v0.2.0)
+### 完了 (v0.2.0)
 
 - [x] 縦書き検出（日本語書籍向け） - `vertical_detect` モジュール
 - [x] JPEG圧縮オプション（ファイルサイズ削減） - `--jpeg-quality` CLI引数
 - [x] 並列処理の最適化 - Step 6/7/8/10を`rayon::par_iter`で並列化
+- [x] スマートキャッシュ機能 - sha256ベースの処理結果キャッシュ
+- [x] パイプラインモジュール - main.rs 68%削減リファクタリング
+- [x] デバッグオプション - `--max-pages`, `--save-debug`
+- [x] cache-infoサブコマンド - キャッシュ情報表示
+
+### 完了 (v0.3.0)
+
+- [x] 設定ファイル対応 - TOML形式 (`superbook.toml`)
+
+### 予定 (v0.4.0)
+
 - [ ] Webインターフェース
 
 ## ライセンス

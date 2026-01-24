@@ -120,6 +120,7 @@
 pub mod ai_bridge;
 pub mod cache;
 pub mod cli;
+pub mod config;
 pub mod color_stats;
 pub mod deskew;
 pub mod finalize;
@@ -144,6 +145,10 @@ pub use ai_bridge::{
 pub use cli::{
     create_page_progress_bar, create_progress_bar, create_spinner, CacheInfoArgs, Cli, Commands,
     ConvertArgs, ExitCode,
+};
+pub use config::{
+    AdvancedConfig, CliOverrides, Config, ConfigError, GeneralConfig, OcrConfig, OutputConfig,
+    ProcessingConfig,
 };
 pub use deskew::{
     DeskewAlgorithm, DeskewError, DeskewOptions, DeskewOptionsBuilder, DeskewResult,
@@ -197,7 +202,10 @@ pub use cache::{
     should_skip_processing, CacheDigest, ProcessingCache, ProcessingResult, CACHE_EXTENSION,
     CACHE_VERSION,
 };
-pub use pipeline::{PdfPipeline, PipelineConfig, PipelineError, PipelineResult};
+pub use pipeline::{
+    PdfPipeline, PipelineConfig, PipelineError, PipelineResult, ProcessingContext,
+    ProgressCallback, SilentProgress,
+};
 
 /// Exit codes for CLI (deprecated: prefer using `ExitCode` enum)
 ///
