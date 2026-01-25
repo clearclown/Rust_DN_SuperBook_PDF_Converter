@@ -134,6 +134,7 @@ pub mod pipeline;
 pub mod progress;
 pub mod pdf_writer;
 pub mod realesrgan;
+pub mod reprocess;
 pub mod util;
 pub mod vertical_detect;
 #[cfg(feature = "web")]
@@ -177,6 +178,9 @@ pub use page_number::{
 pub use pdf_reader::{LopdfReader, PdfDocument, PdfMetadata, PdfPage, PdfReaderError};
 pub use pdf_writer::{PdfWriterError, PdfWriterOptions, PdfWriterOptionsBuilder, PrintPdfWriter};
 pub use realesrgan::{RealEsrgan, RealEsrganError, RealEsrganOptions, RealEsrganOptionsBuilder};
+pub use reprocess::{
+    PageStatus, ReprocessError, ReprocessOptions, ReprocessResult, ReprocessState,
+};
 pub use util::{
     clamp, ensure_dir_writable, ensure_file_exists, format_duration, format_file_size, load_image,
     mm_to_pixels, mm_to_points, percentage, pixels_to_mm, points_to_mm,
