@@ -899,8 +899,8 @@ impl ImageProcDeskewer {
                     let weight = wx * wy;
 
                     let pixel = img.get_pixel(i as u32, j as u32);
-                    for c in 0..4 {
-                        result[c] += pixel.0[c] as f64 * weight;
+                    for (r, p) in result.iter_mut().zip(pixel.0.iter()) {
+                        *r += *p as f64 * weight;
                     }
                     weight_sum += weight;
                 }
@@ -908,8 +908,8 @@ impl ImageProcDeskewer {
         }
 
         if weight_sum > 0.0 {
-            for c in 0..4 {
-                result[c] /= weight_sum;
+            for r in &mut result {
+                *r /= weight_sum;
             }
         }
 
