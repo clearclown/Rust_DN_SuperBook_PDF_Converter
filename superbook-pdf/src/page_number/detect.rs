@@ -345,18 +345,65 @@ impl TesseractPageDetector {
         })
     }
 
-    /// Analyze image region for numbers (simplified implementation)
+    /// Analyze image region for numbers using Tesseract OCR
     fn analyze_region_for_numbers(
-        _img: &image::DynamicImage,
+        img: &image::DynamicImage,
         _options: &PageNumberOptions,
     ) -> (Option<i32>, String, f32) {
-        // In a full implementation, this would:
-        // 1. Save region to temp file
-        // 2. Call tesseract with appropriate settings
-        // 3. Parse the result
+        // Create temp file for the cropped region
+        let temp_dir = std::env::temp_dir();
+        let temp_path = temp_dir.join(format!("page_num_region_{}.png", std::process::id()));
 
-        // For now, return a placeholder
-        (None, String::new(), 0.0)
+        // Save the region to temp file
+        if img.save(&temp_path).is_err() {
+            return (None, String::new(), 0.0);
+        }
+
+        // Call Tesseract with digits-only configuration
+        // tesseract input.png stdout --psm 7 -c tessedit_char_whitelist=0123456789
+        let output = std::process::Command::new("tesseract")
+            .arg(&temp_path)
+            .arg("stdout")
+            .arg("--psm")
+            .arg("7") // Single line mode
+            .arg("-c")
+            .arg("tessedit_char_whitelist=0123456789")
+            .output();
+
+        // Cleanup temp file
+        let _ = std::fs::remove_file(&temp_path);
+
+        match output {
+            Ok(result) if result.status.success() => {
+                let raw_text = String::from_utf8_lossy(&result.stdout).trim().to_string();
+
+                // Extract digits from the text
+                let digits: String = raw_text.chars().filter(|c| c.is_ascii_digit()).collect();
+
+                if digits.is_empty() {
+                    return (None, raw_text, 0.0);
+                }
+
+                // Parse as number
+                match digits.parse::<i32>() {
+                    Ok(num) if num > 0 && num < 10000 => {
+                        // Valid page number range (1-9999)
+                        // Confidence based on text cleanliness
+                        let confidence = if digits == raw_text.trim() {
+                            95.0 // Clean digits only
+                        } else {
+                            70.0 // Had to filter some characters
+                        };
+                        (Some(num), raw_text, confidence)
+                    }
+                    _ => (None, raw_text, 30.0),
+                }
+            }
+            _ => {
+                // Tesseract not available or failed
+                (None, String::new(), 0.0)
+            }
+        }
     }
 
     /// Analyze multiple images

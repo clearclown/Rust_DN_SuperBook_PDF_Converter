@@ -365,8 +365,8 @@ impl ImageProcDeskewer {
                 if ox >= 0.0 && ox < width as f64 - 1.0 && oy >= 0.0 && oy < height as f64 - 1.0 {
                     let pixel = match options.quality_mode {
                         QualityMode::Fast => Self::nearest_neighbor(img, ox, oy),
-                        QualityMode::Standard => Self::bilinear(img, ox, oy),
-                        QualityMode::HighQuality => Self::bilinear(img, ox, oy), // Simplified
+                        QualityMode::Standard => Self::lanczos(img, ox, oy),
+                        QualityMode::HighQuality => Self::lanczos(img, ox, oy),
                     };
                     rotated.put_pixel(nx, ny, pixel);
                 }
