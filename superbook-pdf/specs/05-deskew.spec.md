@@ -47,6 +47,9 @@ pub enum DeskewAlgorithm {
     TextLineDetection,
     /// 組み合わせ（複数手法の平均）
     Combined,
+    /// ページ境界検出（スキャン書籍用）
+    /// Sobel勾配フィルターでページ影を検出
+    PageEdge,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -370,6 +373,7 @@ fn test_different_algorithms() {
         DeskewAlgorithm::ProjectionProfile,
         DeskewAlgorithm::TextLineDetection,
         DeskewAlgorithm::Combined,
+        DeskewAlgorithm::PageEdge,
     ] {
         let detection = ImageProcDeskewer::detect_skew(
             input,
@@ -382,6 +386,60 @@ fn test_different_algorithms() {
         // 各アルゴリズムで妥当な結果が得られる
         assert!(detection.angle.abs() < 15.0);
     }
+}
+```
+
+### TC-DSK-011: PageEdgeアルゴリズム（スキャン書籍）
+
+```rust
+#[test]
+fn test_page_edge_algorithm() {
+    // スキャン書籍画像（ページ境界の影がある）
+    let input = Path::new("tests/fixtures/scanned_book_page.png");
+
+    let detection = ImageProcDeskewer::detect_skew(
+        input,
+        &DeskewOptions {
+            algorithm: DeskewAlgorithm::PageEdge,
+            ..Default::default()
+        },
+    ).unwrap();
+
+    // PageEdgeはページ境界の傾きを検出
+    // テキスト行ではなくページの物理的な傾きを検出
+    assert!(detection.confidence > 0.5);
+    assert!(detection.feature_count > 100);  // 十分な境界点を検出
+}
+```
+
+### TC-DSK-012: PageEdge vs HoughLines比較
+
+```rust
+#[test]
+fn test_page_edge_vs_hough() {
+    // ページ境界が傾いているがテキスト行は水平な画像
+    let input = Path::new("tests/fixtures/tilted_page_horizontal_text.png");
+
+    let hough_detection = ImageProcDeskewer::detect_skew(
+        input,
+        &DeskewOptions {
+            algorithm: DeskewAlgorithm::HoughLines,
+            ..Default::default()
+        },
+    ).unwrap();
+
+    let page_edge_detection = ImageProcDeskewer::detect_skew(
+        input,
+        &DeskewOptions {
+            algorithm: DeskewAlgorithm::PageEdge,
+            ..Default::default()
+        },
+    ).unwrap();
+
+    // HoughLinesはテキスト行を検出（0度に近い）
+    // PageEdgeはページ境界を検出（傾きがある）
+    // 両者の結果が異なることを確認
+    assert!((hough_detection.angle - page_edge_detection.angle).abs() > 0.5);
 }
 ```
 
@@ -491,6 +549,84 @@ impl ImageProcDeskewer {
 }
 ```
 
+### PageEdgeアルゴリズムによる実装
+
+スキャン書籍のページ境界の影を検出して傾きを計算する。
+テキスト行ではなく、物理的なページの傾きを検出する。
+
+```rust
+impl ImageProcDeskewer {
+    /// PageEdgeアルゴリズム: ページ境界の傾きを検出
+    ///
+    /// # アルゴリズム
+    /// 1. 3ピクセルSobel風水平勾配フィルターを適用
+    /// 2. 各行で最初の有意な負勾配（白→灰色遷移）を検出
+    /// 3. 中央値ベースで外れ値を除去
+    /// 4. インライア点に対して線形回帰で角度計算
+    /// 5. 垂直からの偏差を傾き角度として返却
+    pub fn detect_skew_page_edge(gray: &GrayImage, options: &DeskewOptions) -> Result<SkewDetection> {
+        let (width, height) = gray.dimensions();
+        let search_width = width / 2;  // 左半分のみ検索
+        let gradient_threshold: i32 = -5;
+
+        let mut boundary_points: Vec<(f64, f64)> = Vec::new();
+
+        // 各行でSobel勾配を計算し、境界点を検出
+        for y in 0..height {
+            for x in 2..search_width {
+                let left = gray.get_pixel(x - 2, y).0[0] as i32;
+                let right = gray.get_pixel(x, y).0[0] as i32;
+                let gradient = right - left;
+
+                if gradient < gradient_threshold {
+                    boundary_points.push((x as f64, y as f64));
+                    break;
+                }
+            }
+        }
+
+        // 中央値で外れ値フィルタリング
+        let median_x = Self::median(&boundary_points.iter().map(|(x, _)| *x).collect::<Vec<_>>());
+        let inliers: Vec<(f64, f64)> = boundary_points
+            .into_iter()
+            .filter(|(x, _)| (*x - median_x).abs() < 50.0)
+            .collect();
+
+        // 線形回帰で角度計算
+        let angle = Self::fit_line_angle(&inliers)?;
+        let confidence = (inliers.len() as f64 / height as f64).min(1.0);
+
+        Ok(SkewDetection {
+            angle: angle.clamp(-options.max_angle, options.max_angle),
+            confidence,
+            feature_count: inliers.len(),
+        })
+    }
+
+    /// 点群に線をフィットして垂直からの角度を返す
+    fn fit_line_angle(points: &[(f64, f64)]) -> Result<f64> {
+        if points.len() < 10 {
+            return Ok(0.0);
+        }
+
+        // x = m * y + b の形式で回帰
+        let n = points.len() as f64;
+        let sum_x: f64 = points.iter().map(|(x, _)| x).sum();
+        let sum_y: f64 = points.iter().map(|(_, y)| y).sum();
+        let sum_xy: f64 = points.iter().map(|(x, y)| x * y).sum();
+        let sum_yy: f64 = points.iter().map(|(_, y)| y * y).sum();
+
+        let denominator = n * sum_yy - sum_y * sum_y;
+        if denominator.abs() < 1e-10 {
+            return Ok(0.0);
+        }
+
+        let slope = (n * sum_xy - sum_x * sum_y) / denominator;
+        Ok(slope.atan().to_degrees())
+    }
+}
+```
+
 ---
 
 ## Acceptance Criteria
@@ -505,6 +641,8 @@ impl ImageProcDeskewer {
 - [ ] 各品質モードで正常に動作する
 - [ ] バッチ処理が正しく動作する
 - [ ] 異なるアルゴリズムで妥当な結果が得られる
+- [ ] PageEdgeアルゴリズムがスキャン書籍ページで正しく動作する
+- [ ] PageEdgeアルゴリズムがページ境界の傾きを検出できる
 
 ---
 

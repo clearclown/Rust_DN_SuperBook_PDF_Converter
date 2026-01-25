@@ -43,6 +43,7 @@ pub use types::{
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::GrayImage;
     use std::path::PathBuf;
 
     #[test]
@@ -964,5 +965,111 @@ mod tests {
         // High quality preset uses Combined
         let hq_opts = DeskewOptions::high_quality();
         assert!(matches!(hq_opts.algorithm, DeskewAlgorithm::Combined));
+    }
+
+    // ============================================================
+    // TC-DSK-011: PageEdge Algorithm Tests
+    // ============================================================
+
+    #[test]
+    fn test_tc_dsk_011_page_edge_algorithm_basic() {
+        // Create a test image with a vertical edge (simulating page boundary)
+        let mut img = GrayImage::new(200, 100);
+
+        // Fill with white
+        for pixel in img.pixels_mut() {
+            *pixel = image::Luma([255u8]);
+        }
+
+        // Draw a vertical line at x=50 (darker)
+        for y in 0..100 {
+            img.put_pixel(48, y, image::Luma([200u8]));
+            img.put_pixel(49, y, image::Luma([150u8]));
+            img.put_pixel(50, y, image::Luma([100u8]));
+        }
+
+        let options = DeskewOptions::builder()
+            .algorithm(DeskewAlgorithm::PageEdge)
+            .build();
+
+        let result = ImageProcDeskewer::detect_skew_page_edge(&img, &options);
+        assert!(result.is_ok());
+
+        let detection = result.unwrap();
+        // Vertical line should have angle close to 0
+        assert!(
+            detection.angle.abs() < 1.0,
+            "Expected angle near 0, got {}",
+            detection.angle
+        );
+    }
+
+    #[test]
+    fn test_tc_dsk_011_page_edge_with_tilt() {
+        // Create a test image with a tilted edge
+        let mut img = GrayImage::new(200, 100);
+
+        // Fill with white
+        for pixel in img.pixels_mut() {
+            *pixel = image::Luma([255u8]);
+        }
+
+        // Draw a tilted line (2 degrees = approximately 3.5 pixels over 100 rows)
+        // x position increases as y increases
+        for y in 0..100 {
+            let x = 50 + (y as f64 * 0.035) as u32; // ~2 degree tilt
+            if x < 200 && x >= 2 {
+                img.put_pixel(x - 2, y, image::Luma([200u8]));
+                img.put_pixel(x - 1, y, image::Luma([150u8]));
+                img.put_pixel(x, y, image::Luma([100u8]));
+            }
+        }
+
+        let options = DeskewOptions::builder()
+            .algorithm(DeskewAlgorithm::PageEdge)
+            .build();
+
+        let result = ImageProcDeskewer::detect_skew_page_edge(&img, &options);
+        assert!(result.is_ok());
+
+        let detection = result.unwrap();
+        // Should detect some angle (exact value depends on implementation)
+        // Just verify it detects a non-zero angle in the right direction
+        assert!(
+            detection.angle > 0.5,
+            "Expected positive angle, got {}",
+            detection.angle
+        );
+    }
+
+    #[test]
+    fn test_tc_dsk_011_page_edge_no_edge() {
+        // Create a uniform white image (no edge)
+        let img = GrayImage::from_fn(200, 100, |_, _| image::Luma([255u8]));
+
+        let options = DeskewOptions::builder()
+            .algorithm(DeskewAlgorithm::PageEdge)
+            .build();
+
+        let result = ImageProcDeskewer::detect_skew_page_edge(&img, &options);
+        assert!(result.is_ok());
+
+        let detection = result.unwrap();
+        // No edge should result in 0 angle and low confidence
+        assert_eq!(detection.angle, 0.0);
+        assert!(detection.confidence < 0.5);
+    }
+
+    #[test]
+    fn test_tc_dsk_011_page_edge_small_image() {
+        // Very small image should still work
+        let img = GrayImage::new(50, 20);
+
+        let options = DeskewOptions::builder()
+            .algorithm(DeskewAlgorithm::PageEdge)
+            .build();
+
+        let result = ImageProcDeskewer::detect_skew_page_edge(&img, &options);
+        assert!(result.is_ok());
     }
 }
