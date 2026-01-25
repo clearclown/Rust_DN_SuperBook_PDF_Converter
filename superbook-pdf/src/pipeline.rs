@@ -640,7 +640,10 @@ impl PdfPipeline {
         Ok(results)
     }
 
-    /// Step 4: Margin trimming
+    /// Step 2: Margin trimming (C#互換: 単純な固定%カット)
+    ///
+    /// C#版と同様に、各辺から指定%を単純にカットする。
+    /// 複雑なマージン検出は行わない。
     fn step_margin_trim<P: ProgressCallback>(
         &self,
         work_dir: &Path,
@@ -651,18 +654,7 @@ impl PdfPipeline {
         let trimmed_dir = work_dir.join("trimmed");
         std::fs::create_dir_all(&trimmed_dir)?;
 
-        let margin_options = crate::MarginOptions::builder()
-            .default_trim_percent(self.config.margin_trim as f32)
-            .build();
-
-        // Detect unified margins
-        let unified = match crate::ImageMarginDetector::detect_unified(images, &margin_options) {
-            Ok(u) => u,
-            Err(_) => {
-                progress.on_debug("Margin detection failed, skipping trim");
-                return Ok(images.to_vec());
-            }
-        };
+        let trim_percent = self.config.margin_trim / 100.0; // Convert to ratio
 
         let output_paths: Vec<PathBuf> = images
             .iter()
@@ -680,11 +672,25 @@ impl PdfPipeline {
             .par_iter()
             .zip(output_paths.par_iter())
             .map(|(img_path, output_path)| {
-                match crate::ImageMarginDetector::trim(img_path, output_path, &unified.margins) {
-                    Ok(_) => {}
-                    Err(_) => {
-                        std::fs::copy(img_path, output_path).ok();
+                // C#互換: 単純な固定%カット
+                if let Ok(img) = image::open(img_path) {
+                    let (w, h) = (img.width(), img.height());
+                    let trim_x = (w as f64 * trim_percent) as u32;
+                    let trim_y = (h as f64 * trim_percent) as u32;
+
+                    let new_x = trim_x;
+                    let new_y = trim_y;
+                    let new_w = w.saturating_sub(trim_x * 2);
+                    let new_h = h.saturating_sub(trim_y * 2);
+
+                    if new_w > 0 && new_h > 0 {
+                        let cropped = img.crop_imm(new_x, new_y, new_w, new_h);
+                        cropped.save(output_path).ok();
+                    } else {
+                        img.save(output_path).ok();
                     }
+                } else {
+                    std::fs::copy(img_path, output_path).ok();
                 }
                 output_path.clone()
             })
