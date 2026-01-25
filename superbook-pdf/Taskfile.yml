@@ -1,0 +1,124 @@
+# superbook-pdf Taskfile
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  IMAGE_NAME: superbook-pdf
+  IMAGE_TAG: latest
+  CONTAINER_NAME: superbook-pdf
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  # ===== Development =====
+
+  build:
+    desc: Build Rust binary locally
+    cmds:
+      - cargo build --release --features web
+
+  test:
+    desc: Run all tests
+    cmds:
+      - cargo test --features web
+
+  clippy:
+    desc: Run clippy lints
+    cmds:
+      - cargo clippy --features web -- -D warnings
+
+  fmt:
+    desc: Format code
+    cmds:
+      - cargo fmt
+
+  check:
+    desc: Run all checks (test, clippy, fmt)
+    cmds:
+      - task: test
+      - task: clippy
+      - cargo fmt -- --check
+
+  # ===== Container =====
+
+  container-build:
+    desc: Build container image
+    cmds:
+      - podman build -t {{.IMAGE_NAME}}:{{.IMAGE_TAG}} -f Containerfile .
+
+  container-run:
+    desc: Run container (use INPUT_DIR and OUTPUT_DIR vars)
+    vars:
+      INPUT_DIR: '{{.INPUT_DIR | default "./input"}}'
+      OUTPUT_DIR: '{{.OUTPUT_DIR | default "./output"}}'
+    cmds:
+      - |
+        podman run --rm -it \
+          --gpus all \
+          -v {{.INPUT_DIR}}:/data/input:ro \
+          -v {{.OUTPUT_DIR}}:/data/output:rw \
+          {{.IMAGE_NAME}}:{{.IMAGE_TAG}} \
+          convert /data/input /data/output
+
+  container-shell:
+    desc: Start interactive shell in container
+    cmds:
+      - |
+        podman run --rm -it \
+          --gpus all \
+          --entrypoint /bin/bash \
+          {{.IMAGE_NAME}}:{{.IMAGE_TAG}}
+
+  container-serve:
+    desc: Start web server in container
+    vars:
+      PORT: '{{.PORT | default "8080"}}'
+    cmds:
+      - |
+        podman run --rm -it \
+          --gpus all \
+          -p {{.PORT}}:8080 \
+          -v ./data:/data:rw \
+          {{.IMAGE_NAME}}:{{.IMAGE_TAG}} \
+          serve --bind 0.0.0.0 --port 8080
+
+  # ===== Conversion =====
+
+  convert:
+    desc: Convert PDF files (INPUT_DIR, OUTPUT_DIR)
+    vars:
+      INPUT_DIR: '{{.INPUT_DIR | default "./input"}}'
+      OUTPUT_DIR: '{{.OUTPUT_DIR | default "./output"}}'
+    cmds:
+      - ./target/release/superbook-pdf convert {{.INPUT_DIR}} {{.OUTPUT_DIR}}
+
+  convert-ocr:
+    desc: Convert PDF files with OCR
+    vars:
+      INPUT_DIR: '{{.INPUT_DIR | default "./input"}}'
+      OUTPUT_DIR: '{{.OUTPUT_DIR | default "./output"}}'
+    cmds:
+      - ./target/release/superbook-pdf convert {{.INPUT_DIR}} {{.OUTPUT_DIR}} --ocr
+
+  serve:
+    desc: Start web server locally
+    vars:
+      PORT: '{{.PORT | default "8080"}}'
+    cmds:
+      - ./target/release/superbook-pdf serve --port {{.PORT}}
+
+  # ===== Utilities =====
+
+  info:
+    desc: Show system info
+    cmds:
+      - ./target/release/superbook-pdf info
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - cargo clean

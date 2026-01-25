@@ -1,6 +1,0 @@
-﻿「インサイドCisco IOSアーキテクチャ―Ciscoルータ内部の動作を理解するための手引き Japanese edition」
-https://www.amazon.it/dp/4797317264/
-
-「BGP: TCP/IP ルーティングとオペレーションの実際」
-https://www.amazon.co.jp/dp/4274065685/
-

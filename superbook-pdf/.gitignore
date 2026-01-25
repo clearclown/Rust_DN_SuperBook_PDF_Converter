@@ -1,2 +1,3 @@
 /target/
 Cargo.lock
+test_output_e2e/

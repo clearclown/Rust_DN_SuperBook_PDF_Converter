@@ -1,8 +1,0 @@
-﻿Do not use the character '.' in the filename except the extension.
-(Due to bug from Visual Studio 17.4.1?)
-
-e.g.
-
-OK: aaa_bbb.txt
-NG: aaa_bbb.sh.txt
-

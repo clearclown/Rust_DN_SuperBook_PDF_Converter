@@ -1,15 +1,292 @@
 //! Page Number Detection Implementation
 //!
-//! Tesseract-based page number detection.
+//! Tesseract-based page number detection with 4-stage fallback matching.
 
 use super::types::{
-    DetectedPageNumber, OffsetCorrection, PageNumberAnalysis, PageNumberError, PageNumberOptions,
-    PageNumberPosition, PageNumberRect, Result,
+    DetectedPageNumber, MatchStage, OffsetCorrection, PageNumberAnalysis, PageNumberCandidate,
+    PageNumberError, PageNumberMatch, PageNumberOptions, PageNumberPosition, PageNumberRect,
+    Rectangle, Result,
 };
 use image::GenericImageView;
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+
+// ============================================================
+// Fallback Matching Constants (Phase 2.1)
+// ============================================================
+
+/// Minimum Jaro-Winkler similarity for Stage 2 matching
+pub const MIN_SIMILARITY_THRESHOLD: f64 = 0.7;
+
+/// Margin percentage for expanding search region (3% as per spec)
+pub const SEARCH_REGION_MARGIN_PERCENT: f32 = 3.0;
+
+/// Default reference point for distance calculation (bottom center)
+#[allow(dead_code)]
+pub const DEFAULT_REFERENCE_Y_RATIO: f32 = 0.95;
+
+// ============================================================
+// 4-Stage Fallback Matching (Phase 2.1)
+// ============================================================
+
+/// Find page number with 4-stage fallback matching
+///
+/// # Stages
+/// 1. **ExactMatch**: Exact number match + within region + minimum distance
+/// 2. **SimilarityMatch**: Maximum similarity (Jaro-Winkler) + within region
+/// 3. **OcrSuccessMatch**: OCR success region + minimum distance
+/// 4. **FallbackMatch**: All detected regions + minimum distance
+///
+/// # Arguments
+/// * `candidates` - OCR detection candidates
+/// * `expected_number` - The page number we're looking for
+/// * `search_region` - The region to prioritize (with 3% margin expansion)
+///
+/// # Returns
+/// The best matching candidate, or None if no candidates available
+pub fn find_page_number_with_fallback(
+    candidates: &[PageNumberCandidate],
+    expected_number: u32,
+    search_region: &Rectangle,
+) -> Option<PageNumberMatch> {
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let expected_str = expected_number.to_string();
+    let (ref_x, ref_y) = search_region.center();
+
+    // Expand search region by 3% margin
+    let expanded_region = search_region.expand(SEARCH_REGION_MARGIN_PERCENT);
+
+    // Stage 1: Exact match + within region + minimum distance
+    if let Some(m) = stage1_exact_match(candidates, expected_number, &expanded_region, ref_x, ref_y)
+    {
+        return Some(m);
+    }
+
+    // Stage 2: Maximum similarity (Jaro-Winkler) + within region
+    if let Some(m) =
+        stage2_similarity_match(candidates, &expected_str, &expanded_region, ref_x, ref_y)
+    {
+        return Some(m);
+    }
+
+    // Stage 3: OCR success region + minimum distance
+    if let Some(m) = stage3_ocr_success_match(candidates, expected_number, ref_x, ref_y) {
+        return Some(m);
+    }
+
+    // Stage 4: All detected regions + minimum distance (fallback)
+    stage4_fallback_match(candidates, expected_number, ref_x, ref_y)
+}
+
+/// Stage 1: Exact match + within region + minimum distance
+fn stage1_exact_match(
+    candidates: &[PageNumberCandidate],
+    expected_number: u32,
+    region: &Rectangle,
+    ref_x: i32,
+    ref_y: i32,
+) -> Option<PageNumberMatch> {
+    let mut best: Option<(PageNumberCandidate, f64)> = None;
+
+    for candidate in candidates {
+        // Check for exact number match
+        if candidate.number == Some(expected_number) {
+            let (cx, cy) = candidate.bbox.center();
+            // Check if within expanded region
+            if region.contains(cx, cy) {
+                let distance = candidate.distance_to(ref_x, ref_y);
+                if best.as_ref().is_none_or(|(_, d)| distance < *d) {
+                    best = Some((candidate.clone(), distance));
+                }
+            }
+        }
+    }
+
+    best.map(|(candidate, distance)| {
+        PageNumberMatch::new(
+            candidate,
+            MatchStage::ExactMatch,
+            1.0, // Perfect score for exact match
+            distance,
+            expected_number,
+        )
+    })
+}
+
+/// Stage 2: Maximum similarity (Jaro-Winkler) + within region
+fn stage2_similarity_match(
+    candidates: &[PageNumberCandidate],
+    expected_str: &str,
+    region: &Rectangle,
+    ref_x: i32,
+    ref_y: i32,
+) -> Option<PageNumberMatch> {
+    use strsim::jaro_winkler;
+
+    let mut best: Option<(PageNumberCandidate, f64, f64)> = None; // (candidate, similarity, distance)
+
+    for candidate in candidates {
+        let (cx, cy) = candidate.bbox.center();
+        // Check if within expanded region
+        if region.contains(cx, cy) && !candidate.text.trim().is_empty() {
+            let similarity = jaro_winkler(expected_str, candidate.text.trim());
+            if similarity >= MIN_SIMILARITY_THRESHOLD {
+                let distance = candidate.distance_to(ref_x, ref_y);
+                // Prefer higher similarity, then closer distance
+                let is_better = match &best {
+                    None => true,
+                    Some((_, best_sim, best_dist)) => {
+                        similarity > *best_sim
+                            || (similarity == *best_sim && distance < *best_dist)
+                    }
+                };
+                if is_better {
+                    best = Some((candidate.clone(), similarity, distance));
+                }
+            }
+        }
+    }
+
+    best.map(|(candidate, similarity, distance)| {
+        PageNumberMatch::new(
+            candidate,
+            MatchStage::SimilarityMatch,
+            similarity,
+            distance,
+            expected_str.parse().unwrap_or(0),
+        )
+    })
+}
+
+/// Stage 3: OCR success region + minimum distance
+fn stage3_ocr_success_match(
+    candidates: &[PageNumberCandidate],
+    expected_number: u32,
+    ref_x: i32,
+    ref_y: i32,
+) -> Option<PageNumberMatch> {
+    let mut best: Option<(PageNumberCandidate, f64, f32)> = None; // (candidate, distance, confidence)
+
+    for candidate in candidates {
+        // Only consider OCR success candidates (text was successfully detected)
+        if candidate.ocr_success {
+            let distance = candidate.distance_to(ref_x, ref_y);
+            if best.as_ref().is_none_or(|(_, d, _)| distance < *d) {
+                best = Some((candidate.clone(), distance, candidate.confidence));
+            }
+        }
+    }
+
+    best.map(|(candidate, distance, confidence)| {
+        PageNumberMatch::new(
+            candidate,
+            MatchStage::OcrSuccessMatch,
+            confidence as f64,
+            distance,
+            expected_number,
+        )
+    })
+}
+
+/// Stage 4: All detected regions + minimum distance (fallback)
+fn stage4_fallback_match(
+    candidates: &[PageNumberCandidate],
+    expected_number: u32,
+    ref_x: i32,
+    ref_y: i32,
+) -> Option<PageNumberMatch> {
+    let mut best: Option<(PageNumberCandidate, f64)> = None;
+
+    for candidate in candidates {
+        let distance = candidate.distance_to(ref_x, ref_y);
+        if best.as_ref().is_none_or(|(_, d)| distance < *d) {
+            best = Some((candidate.clone(), distance));
+        }
+    }
+
+    best.map(|(candidate, distance)| {
+        PageNumberMatch::new(
+            candidate,
+            MatchStage::FallbackMatch,
+            0.0, // No score for fallback
+            distance,
+            expected_number,
+        )
+    })
+}
+
+/// Batch process multiple pages with fallback matching
+pub fn find_page_numbers_batch(
+    page_candidates: &[Vec<PageNumberCandidate>],
+    start_page_number: u32,
+    search_regions: &[Rectangle],
+) -> Vec<Option<PageNumberMatch>> {
+    page_candidates
+        .par_iter()
+        .enumerate()
+        .map(|(i, candidates)| {
+            let expected_number = start_page_number + i as u32;
+            let region = search_regions.get(i).cloned().unwrap_or_else(|| {
+                // Default search region if not specified
+                Rectangle::new(0, 0, 1000, 100)
+            });
+            find_page_number_with_fallback(candidates, expected_number, &region)
+        })
+        .collect()
+}
+
+/// Statistics for fallback matching results
+#[derive(Debug, Clone, Default)]
+pub struct FallbackMatchStats {
+    pub total: usize,
+    pub stage1_exact: usize,
+    pub stage2_similarity: usize,
+    pub stage3_ocr_success: usize,
+    pub stage4_fallback: usize,
+    pub not_found: usize,
+}
+
+impl FallbackMatchStats {
+    /// Create stats from match results
+    pub fn from_matches(matches: &[Option<PageNumberMatch>]) -> Self {
+        let mut stats = Self {
+            total: matches.len(),
+            ..Default::default()
+        };
+
+        for m in matches.iter().flatten() {
+            match m.stage {
+                MatchStage::ExactMatch => stats.stage1_exact += 1,
+                MatchStage::SimilarityMatch => stats.stage2_similarity += 1,
+                MatchStage::OcrSuccessMatch => stats.stage3_ocr_success += 1,
+                MatchStage::FallbackMatch => stats.stage4_fallback += 1,
+            }
+        }
+        stats.not_found = matches.iter().filter(|m| m.is_none()).count();
+
+        stats
+    }
+
+    /// Get success rate (Stage 1 + Stage 2)
+    pub fn high_confidence_rate(&self) -> f64 {
+        if self.total == 0 {
+            return 0.0;
+        }
+        (self.stage1_exact + self.stage2_similarity) as f64 / self.total as f64
+    }
+
+    /// Get overall detection rate
+    pub fn detection_rate(&self) -> f64 {
+        if self.total == 0 {
+            return 0.0;
+        }
+        (self.total - self.not_found) as f64 / self.total as f64
+    }
+}
 
 /// Tesseract-based page number detector
 pub struct TesseractPageDetector;
@@ -436,5 +713,183 @@ mod tests {
         };
 
         assert!(!TesseractPageDetector::validate_order(&analysis).unwrap());
+    }
+
+    // ============================================================
+    // 4-Stage Fallback Matching Tests (Phase 2.1)
+    // ============================================================
+
+    #[test]
+    fn test_fallback_empty_candidates() {
+        let candidates: Vec<PageNumberCandidate> = vec![];
+        let region = Rectangle::new(0, 900, 1000, 100);
+        let result = find_page_number_with_fallback(&candidates, 42, &region);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_fallback_stage1_exact_match() {
+        let candidates = vec![
+            PageNumberCandidate::new("42".to_string(), Rectangle::new(500, 950, 50, 30), 0.95),
+            PageNumberCandidate::new("41".to_string(), Rectangle::new(100, 950, 50, 30), 0.90),
+        ];
+        let region = Rectangle::new(0, 900, 1000, 100);
+        let result = find_page_number_with_fallback(&candidates, 42, &region);
+
+        assert!(result.is_some());
+        let m = result.unwrap();
+        assert_eq!(m.stage, MatchStage::ExactMatch);
+        assert_eq!(m.expected_number, 42);
+        assert_eq!(m.candidate.number, Some(42));
+    }
+
+    #[test]
+    fn test_fallback_stage1_prefers_closer() {
+        // Two exact matches, should prefer the closer one
+        let candidates = vec![
+            PageNumberCandidate::new("42".to_string(), Rectangle::new(100, 950, 50, 30), 0.90),
+            PageNumberCandidate::new("42".to_string(), Rectangle::new(500, 950, 50, 30), 0.95),
+        ];
+        let region = Rectangle::new(400, 900, 200, 100); // Center at (500, 950)
+        let result = find_page_number_with_fallback(&candidates, 42, &region);
+
+        assert!(result.is_some());
+        let m = result.unwrap();
+        assert_eq!(m.stage, MatchStage::ExactMatch);
+        // The one at (500, 950) should be closer to region center
+        assert!(m.distance < 100.0);
+    }
+
+    #[test]
+    fn test_fallback_stage2_similarity_match() {
+        // No exact match, but similar text (123 is similar to 124)
+        let candidates = vec![
+            PageNumberCandidate::new("124".to_string(), Rectangle::new(500, 950, 50, 30), 0.80),
+            PageNumberCandidate::new("abc".to_string(), Rectangle::new(100, 950, 50, 30), 0.90),
+        ];
+        let region = Rectangle::new(400, 900, 200, 100);
+        let result = find_page_number_with_fallback(&candidates, 123, &region);
+
+        assert!(result.is_some());
+        let m = result.unwrap();
+        assert_eq!(m.stage, MatchStage::SimilarityMatch);
+        // "124" is similar to "123" (Jaro-Winkler ~0.93)
+        assert!(m.score >= MIN_SIMILARITY_THRESHOLD);
+    }
+
+    #[test]
+    fn test_fallback_stage3_ocr_success() {
+        // No exact or similar match, but OCR success
+        let candidates = vec![
+            PageNumberCandidate::new("xyz".to_string(), Rectangle::new(500, 950, 50, 30), 0.80),
+        ];
+        let region = Rectangle::new(0, 0, 100, 100); // Far from candidate
+        let result = find_page_number_with_fallback(&candidates, 42, &region);
+
+        assert!(result.is_some());
+        let m = result.unwrap();
+        assert_eq!(m.stage, MatchStage::OcrSuccessMatch);
+    }
+
+    #[test]
+    fn test_fallback_stage4_fallback() {
+        // Only empty text candidates (no OCR success)
+        let mut candidate = PageNumberCandidate::new(
+            "".to_string(),
+            Rectangle::new(500, 950, 50, 30),
+            0.10,
+        );
+        candidate.ocr_success = false; // Force OCR failure
+        let candidates = vec![candidate];
+        let region = Rectangle::new(0, 0, 100, 100);
+        let result = find_page_number_with_fallback(&candidates, 42, &region);
+
+        assert!(result.is_some());
+        let m = result.unwrap();
+        assert_eq!(m.stage, MatchStage::FallbackMatch);
+    }
+
+    #[test]
+    fn test_fallback_stage_priority() {
+        // Multiple candidates that would match different stages
+        let candidates = vec![
+            PageNumberCandidate::new("abc".to_string(), Rectangle::new(100, 950, 50, 30), 0.80),
+            PageNumberCandidate::new("42".to_string(), Rectangle::new(500, 950, 50, 30), 0.95),
+        ];
+        let region = Rectangle::new(0, 900, 1000, 100);
+        let result = find_page_number_with_fallback(&candidates, 42, &region);
+
+        // Should match Stage 1 (exact) even though Stage 3 would also match
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().stage, MatchStage::ExactMatch);
+    }
+
+    #[test]
+    fn test_fallback_batch_processing() {
+        let page1_candidates = vec![PageNumberCandidate::new(
+            "1".to_string(),
+            Rectangle::new(500, 950, 50, 30),
+            0.95,
+        )];
+        let page2_candidates = vec![PageNumberCandidate::new(
+            "2".to_string(),
+            Rectangle::new(500, 950, 50, 30),
+            0.95,
+        )];
+        let page3_candidates = vec![]; // No candidates
+
+        let all_candidates = vec![page1_candidates, page2_candidates, page3_candidates];
+        let regions = vec![
+            Rectangle::new(0, 900, 1000, 100),
+            Rectangle::new(0, 900, 1000, 100),
+            Rectangle::new(0, 900, 1000, 100),
+        ];
+
+        let results = find_page_numbers_batch(&all_candidates, 1, &regions);
+
+        assert_eq!(results.len(), 3);
+        assert!(results[0].is_some());
+        assert!(results[1].is_some());
+        assert!(results[2].is_none());
+    }
+
+    #[test]
+    fn test_fallback_stats() {
+        let page1 = PageNumberCandidate::new("1".to_string(), Rectangle::new(500, 950, 50, 30), 0.95);
+        let page2 = PageNumberCandidate::new("2X".to_string(), Rectangle::new(500, 950, 50, 30), 0.80);
+        let page3 = PageNumberCandidate::new("abc".to_string(), Rectangle::new(500, 950, 50, 30), 0.70);
+
+        let all_candidates = vec![vec![page1], vec![page2], vec![page3], vec![]];
+        let regions = vec![
+            Rectangle::new(0, 900, 1000, 100),
+            Rectangle::new(0, 900, 1000, 100),
+            Rectangle::new(0, 900, 1000, 100),
+            Rectangle::new(0, 900, 1000, 100),
+        ];
+
+        let results = find_page_numbers_batch(&all_candidates, 1, &regions);
+        let stats = FallbackMatchStats::from_matches(&results);
+
+        assert_eq!(stats.total, 4);
+        assert_eq!(stats.stage1_exact, 1); // "1" matched exactly
+        assert_eq!(stats.not_found, 1);    // Empty candidates
+        assert!(stats.detection_rate() > 0.5);
+    }
+
+    #[test]
+    fn test_fallback_region_expansion() {
+        // Candidate just outside the strict region but within 3% margin
+        let candidate = PageNumberCandidate::new(
+            "42".to_string(),
+            Rectangle::new(503, 953, 50, 30), // Slightly outside
+            0.95,
+        );
+        let candidates = vec![candidate];
+        // Region center at (500, 950), with expansion should include (503, 953)
+        let region = Rectangle::new(400, 900, 200, 100);
+        let result = find_page_number_with_fallback(&candidates, 42, &region);
+
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().stage, MatchStage::ExactMatch);
     }
 }

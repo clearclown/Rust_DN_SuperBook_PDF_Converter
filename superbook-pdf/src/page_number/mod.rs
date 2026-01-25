@@ -36,11 +36,18 @@ mod offset;
 mod types;
 
 // Re-export public API
-pub use detect::TesseractPageDetector;
-pub use offset::{BookOffsetAnalysis, PageOffsetAnalyzer, PageOffsetResult};
+pub use detect::{
+    find_page_number_with_fallback, find_page_numbers_batch, FallbackMatchStats,
+    TesseractPageDetector,
+};
+pub use offset::{
+    calc_group_reference_position, calc_overlap_center, BookOffsetAnalysis, PageOffsetAnalyzer,
+    PageOffsetResult,
+};
 pub use types::{
-    DetectedPageNumber, OffsetCorrection, PageNumberAnalysis, PageNumberDetector, PageNumberError,
-    PageNumberOptions, PageNumberOptionsBuilder, PageNumberPosition, PageNumberRect, Result,
+    DetectedPageNumber, MatchStage, OffsetCorrection, PageNumberAnalysis, PageNumberCandidate,
+    PageNumberDetector, PageNumberError, PageNumberMatch, PageNumberOptions,
+    PageNumberOptionsBuilder, PageNumberPosition, PageNumberRect, Point, Rectangle, Result,
 };
 
 #[cfg(test)]

@@ -594,16 +594,24 @@ fn run_cache_info(args: &CacheInfoArgs) -> Result<(), Box<dyn std::error::Error>
 
 #[cfg(feature = "web")]
 fn run_serve(args: &ServeArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let config = ServerConfig::default()
+    let mut config = ServerConfig::default()
         .with_port(args.port)
         .with_bind(&args.bind)
         .with_upload_limit(args.upload_limit * 1024 * 1024);
 
-    let server = WebServer::with_config(config);
+    // Configure CORS
+    if args.no_cors {
+        config = config.with_cors_disabled();
+    } else if !args.cors_origins.is_empty() {
+        config = config.with_cors_origins(args.cors_origins.clone());
+    }
+    // Default: permissive CORS is already set in ServerConfig::default()
 
     // Create tokio runtime and run the server
+    // Note: WebServer must be created inside async context because WorkerPool spawns tasks
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
+        let server = WebServer::with_config(config);
         server.run().await.map_err(|e| e.to_string())
     })?;
 

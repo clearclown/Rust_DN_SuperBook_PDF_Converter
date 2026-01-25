@@ -29,6 +29,142 @@ use thiserror::Error;
 
 use crate::cli::ConvertArgs;
 
+// ============================================================
+// Memory Management Utilities (Phase 3 optimization)
+// ============================================================
+
+/// Estimated memory per image at 300 DPI (A4 size, RGBA)
+const ESTIMATED_IMAGE_MEMORY_MB: usize = 100;
+
+/// Minimum chunk size for parallel processing
+const MIN_CHUNK_SIZE: usize = 4;
+
+/// Default memory limit if not specified (4GB)
+const DEFAULT_MEMORY_LIMIT_MB: usize = 4096;
+
+/// Calculate optimal chunk size based on memory constraints
+///
+/// # Arguments
+/// * `total_items` - Total number of items to process
+/// * `max_memory_mb` - Maximum memory to use (0 = use default limit)
+/// * `threads` - Number of parallel threads
+///
+/// # Returns
+/// Optimal chunk size that fits within memory constraints
+pub fn calculate_optimal_chunk_size(
+    total_items: usize,
+    max_memory_mb: usize,
+    threads: usize,
+) -> usize {
+    let memory_limit = if max_memory_mb == 0 {
+        get_available_memory_mb().unwrap_or(DEFAULT_MEMORY_LIMIT_MB)
+    } else {
+        max_memory_mb
+    };
+
+    // Reserve 50% of available memory for OS and other processes
+    let usable_memory = memory_limit / 2;
+
+    // Calculate how many images can be processed concurrently
+    // Consider thread count to avoid over-committing memory
+    let max_concurrent = threads.max(num_cpus::get());
+    let per_thread_capacity = usable_memory / ESTIMATED_IMAGE_MEMORY_MB;
+    let concurrent_capacity = per_thread_capacity.min(max_concurrent);
+
+    // Chunk size should be at least MIN_CHUNK_SIZE but not more than concurrent capacity
+    let chunk_size = concurrent_capacity.max(MIN_CHUNK_SIZE);
+
+    // Don't exceed total items
+    chunk_size.min(total_items).max(1)
+}
+
+/// Get available system memory in MB
+#[cfg(target_os = "linux")]
+fn get_available_memory_mb() -> Option<usize> {
+    use std::fs;
+
+    let meminfo = fs::read_to_string("/proc/meminfo").ok()?;
+    for line in meminfo.lines() {
+        if line.starts_with("MemAvailable:") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let kb: usize = parts[1].parse().ok()?;
+                return Some(kb / 1024);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn get_available_memory_mb() -> Option<usize> {
+    // For non-Linux systems, use a conservative default
+    Some(DEFAULT_MEMORY_LIMIT_MB)
+}
+
+/// Process items in chunks for memory-controlled parallel execution
+///
+/// This function processes items in batches to prevent memory exhaustion.
+/// Each chunk is processed in parallel using rayon, but chunks are processed
+/// sequentially to limit peak memory usage.
+///
+/// # Arguments
+/// * `items` - Items to process
+/// * `chunk_size` - Size of each processing chunk (0 = process all at once)
+/// * `processor` - Function to apply to each item
+/// * `progress` - Optional progress callback (current, total)
+///
+/// # Returns
+/// Vector of results in the same order as input items
+pub fn process_in_chunks<T, R, F, P>(
+    items: &[T],
+    chunk_size: usize,
+    processor: F,
+    progress: Option<&P>,
+) -> Vec<R>
+where
+    T: Sync,
+    R: Send,
+    F: Fn(&T) -> R + Sync,
+    P: Fn(usize, usize) + Sync,
+{
+    let total = items.len();
+    if total == 0 {
+        return vec![];
+    }
+
+    let effective_chunk_size = if chunk_size == 0 { total } else { chunk_size };
+    let completed = AtomicUsize::new(0);
+
+    // Collect all results with their indices, then sort
+    let mut indexed_results: Vec<(usize, R)> = Vec::with_capacity(total);
+
+    for chunk_start in (0..total).step_by(effective_chunk_size) {
+        let chunk_end = (chunk_start + effective_chunk_size).min(total);
+        let chunk: Vec<(usize, &T)> = (chunk_start..chunk_end)
+            .map(|i| (i, &items[i]))
+            .collect();
+
+        let chunk_results: Vec<(usize, R)> = chunk
+            .par_iter()
+            .map(|(idx, item)| {
+                let result = processor(item);
+                let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                if let Some(cb) = progress {
+                    cb(done, total);
+                }
+                (*idx, result)
+            })
+            .collect();
+
+        indexed_results.extend(chunk_results);
+    }
+
+    // Sort by index to maintain original order
+    indexed_results.sort_by_key(|(idx, _)| *idx);
+    indexed_results.into_iter().map(|(_, r)| r).collect()
+}
+
 /// Progress callback for pipeline steps
 pub trait ProgressCallback: Send + Sync {
     /// Called when a new step starts
@@ -104,6 +240,12 @@ pub struct PipelineConfig {
     pub jpeg_quality: u8,
     /// Thread count (None = auto)
     pub threads: Option<usize>,
+    /// Maximum memory usage in MB (0 = unlimited)
+    #[serde(default)]
+    pub max_memory_mb: usize,
+    /// Chunk size for batch processing (0 = auto based on memory)
+    #[serde(default)]
+    pub chunk_size: usize,
 }
 
 impl Default for PipelineConfig {
@@ -123,6 +265,8 @@ impl Default for PipelineConfig {
             save_debug: false,
             jpeg_quality: 90,
             threads: None,
+            max_memory_mb: 0,  // 0 = unlimited
+            chunk_size: 0,    // 0 = auto
         }
     }
 }
@@ -146,6 +290,8 @@ impl PipelineConfig {
             save_debug: args.save_debug,
             jpeg_quality: args.jpeg_quality,
             threads: args.threads,
+            max_memory_mb: 0,  // Auto-detect based on available memory
+            chunk_size: 0,    // Auto-calculate based on memory limit
         }
     }
 
@@ -964,6 +1110,9 @@ mod tests {
         assert!(!config.save_debug);
         assert_eq!(config.jpeg_quality, 90);
         assert!(config.threads.is_none());
+        // Phase 3: Memory management fields
+        assert_eq!(config.max_memory_mb, 0);
+        assert_eq!(config.chunk_size, 0);
     }
 
     #[test]
@@ -1151,5 +1300,111 @@ mod tests {
         for err in errors {
             assert!(!err.to_string().is_empty());
         }
+    }
+
+    // ============ Memory Management Tests (Phase 3) ============
+
+    #[test]
+    fn test_calculate_optimal_chunk_size_basic() {
+        // With 4GB memory limit and 100MB per image, should allow ~20 concurrent
+        let chunk = calculate_optimal_chunk_size(100, 4096, 8);
+        assert!(chunk >= MIN_CHUNK_SIZE);
+        assert!(chunk <= 100);
+    }
+
+    #[test]
+    fn test_calculate_optimal_chunk_size_small_batch() {
+        // When total items is small, chunk size should not exceed it
+        let chunk = calculate_optimal_chunk_size(3, 4096, 8);
+        assert!(chunk >= 1);
+        assert!(chunk <= 3);
+    }
+
+    #[test]
+    fn test_calculate_optimal_chunk_size_zero_items() {
+        let chunk = calculate_optimal_chunk_size(0, 4096, 8);
+        assert_eq!(chunk, 1); // At least 1 to prevent division by zero
+    }
+
+    #[test]
+    fn test_calculate_optimal_chunk_size_limited_memory() {
+        // With very limited memory, chunk size should be small
+        let chunk = calculate_optimal_chunk_size(100, 200, 8);
+        assert!(chunk >= MIN_CHUNK_SIZE);
+        // With only 200MB, usable = 100MB, capacity = 1, so MIN_CHUNK_SIZE
+    }
+
+    #[test]
+    fn test_calculate_optimal_chunk_size_auto_memory() {
+        // 0 memory means auto-detect
+        let chunk = calculate_optimal_chunk_size(100, 0, 8);
+        assert!(chunk >= 1);
+    }
+
+    #[test]
+    fn test_process_in_chunks_empty() {
+        let items: Vec<i32> = vec![];
+        let results: Vec<i32> = process_in_chunks(&items, 4, |x| *x * 2, None::<&fn(usize, usize)>);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_process_in_chunks_single_item() {
+        let items = vec![5];
+        let results: Vec<i32> = process_in_chunks(&items, 4, |x| *x * 2, None::<&fn(usize, usize)>);
+        assert_eq!(results, vec![10]);
+    }
+
+    #[test]
+    fn test_process_in_chunks_maintains_order() {
+        let items: Vec<i32> = (0..20).collect();
+        let results: Vec<i32> = process_in_chunks(&items, 4, |x| *x * 2, None::<&fn(usize, usize)>);
+
+        let expected: Vec<i32> = (0..20).map(|x| x * 2).collect();
+        assert_eq!(results, expected);
+    }
+
+    #[test]
+    fn test_process_in_chunks_with_progress() {
+        use std::sync::atomic::AtomicUsize;
+
+        let items: Vec<i32> = (0..10).collect();
+        let progress_count = Arc::new(AtomicUsize::new(0));
+        let progress_count_clone = progress_count.clone();
+
+        let progress_fn = move |_current: usize, _total: usize| {
+            progress_count_clone.fetch_add(1, Ordering::Relaxed);
+        };
+
+        let results: Vec<i32> = process_in_chunks(&items, 4, |x| *x * 2, Some(&progress_fn));
+
+        assert_eq!(results.len(), 10);
+        assert_eq!(progress_count.load(Ordering::Relaxed), 10);
+    }
+
+    #[test]
+    fn test_process_in_chunks_chunk_size_zero() {
+        // chunk_size 0 means process all at once
+        let items: Vec<i32> = (0..10).collect();
+        let results: Vec<i32> = process_in_chunks(&items, 0, |x| *x + 1, None::<&fn(usize, usize)>);
+
+        let expected: Vec<i32> = (1..11).collect();
+        assert_eq!(results, expected);
+    }
+
+    #[test]
+    fn test_pipeline_config_memory_fields() {
+        let config = PipelineConfig::default();
+        assert_eq!(config.max_memory_mb, 0);
+        assert_eq!(config.chunk_size, 0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_get_available_memory_linux() {
+        let mem = get_available_memory_mb();
+        // On Linux, this should return Some value
+        assert!(mem.is_some());
+        assert!(mem.unwrap() > 0);
     }
 }

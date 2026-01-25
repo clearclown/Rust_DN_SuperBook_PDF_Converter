@@ -1,4 +1,0 @@
-﻿「詳解 TCP/IP Vol.1」
-W. リチャード スティーヴンス (著)
-https://www.amazon.co.jp/dp/4894713209/
-

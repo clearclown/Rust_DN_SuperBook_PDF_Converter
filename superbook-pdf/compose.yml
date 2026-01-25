@@ -1,0 +1,105 @@
+# superbook-pdf Docker/Podman Compose Configuration
+# Backend + Frontend Architecture with GPU Support
+#
+# Usage:
+#   docker compose up -d       # Start all services
+#   docker compose logs -f     # View logs
+#   docker compose down        # Stop all services
+#
+# Podman:
+#   podman-compose up -d
+#   podman compose up -d       # Podman 4.7+
+
+name: superbook-pdf
+
+services:
+  # =============================================================
+  # Backend: Rust API Server with GPU Support
+  # =============================================================
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Containerfile
+    image: superbook-pdf-backend:latest
+    container_name: superbook-backend
+    restart: unless-stopped
+
+    # GPU Support (NVIDIA)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - SUPERBOOK_BIND=0.0.0.0
+      - SUPERBOOK_PORT=8080
+      - SUPERBOOK_WORK_DIR=/data/work
+      - RUST_LOG=info
+
+    volumes:
+      # Input/Output directories
+      - ./data/input:/data/input:ro
+      - ./data/output:/data/output:rw
+      - ./data/work:/data/work:rw
+      # Cache for AI models
+      - ai-cache:/root/.cache
+
+    networks:
+      - superbook-net
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # =============================================================
+  # Frontend: Nginx Web UI with Reverse Proxy
+  # =============================================================
+  frontend:
+    build:
+      context: docker/frontend
+      dockerfile: Containerfile
+    image: superbook-pdf-frontend:latest
+    container_name: superbook-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    environment:
+      - BACKEND_HOST=backend
+      - BACKEND_PORT=8080
+
+    ports:
+      - "${SUPERBOOK_PORT:-8080}:80"
+
+    networks:
+      - superbook-net
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+# =============================================================
+# Networks
+# =============================================================
+networks:
+  superbook-net:
+    driver: bridge
+
+# =============================================================
+# Volumes
+# =============================================================
+volumes:
+  ai-cache:
+    driver: local

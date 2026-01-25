@@ -119,11 +119,12 @@ options: {
 ```json
 {
   "status": "healthy",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "tools": {
     "poppler": true,
     "tesseract": false,
-    "realesrgan": false
+    "realesrgan": false,
+    "yomitoku": false
   }
 }
 ```
@@ -140,7 +141,7 @@ options: {
 
 **技術:**
 - 静的ファイル埋め込み (rust-embed)
-- WebSocket for リアルタイム進捗 (将来拡張)
+- WebSocket for リアルタイム進捗 (v0.5.0で実装完了)
 
 ### データ構造
 
@@ -235,9 +236,10 @@ Options:
 | REST API | 🟢 | 完了 (5エンドポイント) |
 | ジョブキュー | 🟢 | 完了 (25テスト) |
 | CLIコマンド | 🟢 | 完了 (serve サブコマンド) |
-| バックグラウンド処理 | 🟡 | 進行中 |
-| WebUI | 🔴 | 未着手 |
-| 統合テスト | 🔴 | 未着手 |
+| バックグラウンド処理 | 🟢 | 完了 (WorkerPool + JobWorker) |
+| パイプライン統合 | 🟢 | 完了 (PdfPipeline + WebProgressCallback) |
+| WebUI | 🟢 | 完了 (rust-embed + ドラッグ&ドロップ) |
+| 統合テスト | 🟢 | 完了 (14テストケース) |
 
 ## 依存クレート
 

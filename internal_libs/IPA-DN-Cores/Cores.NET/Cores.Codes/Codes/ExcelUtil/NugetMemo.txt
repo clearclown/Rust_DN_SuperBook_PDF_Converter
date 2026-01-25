@@ -1,2 +1,0 @@
-﻿    <PackageReference Include="EPPlus" Version="6.2.10" />
-
