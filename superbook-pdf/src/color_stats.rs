@@ -514,6 +514,20 @@ impl ColorAnalyzer {
         let ink_b =
             Self::percentile_f64(&filtered.iter().map(|s| s.ink_b).collect::<Vec<_>>(), 50.0);
 
+        // C#互換: ink色が明るすぎる場合は補正をスキップ
+        // (画像の大部分が白い場合、5%パーセンタイルでは実際のインクを捉えられない)
+        let ink_lum = 0.299 * ink_r + 0.587 * ink_g + 0.114 * ink_b;
+        let paper_lum = 0.299 * bg_r + 0.587 * bg_g + 0.114 * bg_b;
+        let contrast = paper_lum - ink_lum;
+
+        // コントラストが小さい場合は補正をスキップ
+        // - ink輝度が100以上: 本来のインク色ではなく、薄灰色を誤検出している
+        // - コントラストが100未満: 既に十分なコントラストがある
+        // C#版では元々良好な画像には補正が効かない設計
+        if contrast < 100.0 || ink_lum > 100.0 {
+            return GlobalColorParam::default();
+        }
+
         // Calculate linear scale: ink -> 0, paper -> 255
         let (scale_r, offset_r) = Self::linear_scale(bg_r, ink_r);
         let (scale_g, offset_g) = Self::linear_scale(bg_g, ink_g);
@@ -598,18 +612,10 @@ impl ColorAnalyzer {
                     }
                 }
 
-                // Phase 1.3: Enhanced bleed-through suppression using HSV
-                let (hue, sat_hsv, val_hsv) = Self::rgb_to_hsv(r, g, b);
+                // C#互換: パステルピンク(赤桃色)のみ完全白化
+                // Note: Phase 1.3のBleedSuppressionは削除（C#版に存在しない機能で灰色化の原因）
+                let (hue, _, _) = Self::rgb_to_hsv(r, g, b);
 
-                if params.bleed_suppression.is_bleed_through(hue, sat_hsv, val_hsv) {
-                    // Apply bleed suppression with strength factor
-                    let strength = params.bleed_suppression.strength;
-                    r = Self::clamp8(r as f64 + (255.0 - r as f64) * strength as f64);
-                    g = Self::clamp8(g as f64 + (255.0 - g as f64) * strength as f64);
-                    b = Self::clamp8(b as f64 + (255.0 - b as f64) * strength as f64);
-                }
-
-                // Legacy: Orange/pink noise removal (for backward compatibility)
                 let max2 = r.max(g).max(b);
                 let min2 = r.min(g).min(b);
                 let sat2 = if max2 == 0 {
@@ -619,6 +625,7 @@ impl ColorAnalyzer {
                 };
                 let lum2 = Self::luminance(r, g, b);
 
+                // C#版と同じ条件: 高輝度 + 低彩度 + 赤桃色Hue範囲のみ
                 let is_pastel_pink = lum2 > 230 && sat2 < 30 && (hue <= 40.0 || hue >= 330.0);
 
                 if is_pastel_pink {

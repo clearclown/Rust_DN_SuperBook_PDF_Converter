@@ -818,6 +818,15 @@ impl PdfPipeline {
 
         let global_param = crate::ColorAnalyzer::decide_global_adjustment(&all_stats);
 
+        // Debug: 実際のカラー補正パラメータを出力
+        progress.on_debug(&format!(
+            "Color params: scale=({:.3},{:.3},{:.3}), offset=({:.1},{:.1},{:.1}), ghost_thr={}, paper=({},{},{})",
+            global_param.scale_r, global_param.scale_g, global_param.scale_b,
+            global_param.offset_r, global_param.offset_g, global_param.offset_b,
+            global_param.ghost_suppress_threshold,
+            global_param.paper_r, global_param.paper_g, global_param.paper_b
+        ));
+
         let output_paths: Vec<PathBuf> = (0..images.len())
             .map(|i| color_corrected_dir.join(format!("page_{:04}.png", i)))
             .collect();
