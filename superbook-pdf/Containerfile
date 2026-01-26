@@ -81,6 +81,9 @@ WORKDIR /app
 # Copy Rust binary from builder
 COPY --from=builder /build/target/release/superbook-pdf /usr/local/bin/
 
+# Copy AI bridge scripts
+COPY ai_bridge/*.py /app/
+
 # Setup Python virtual environment for AI tools
 ENV AI_VENV=/app/ai_venv
 RUN uv venv $AI_VENV --python python3.10 \
