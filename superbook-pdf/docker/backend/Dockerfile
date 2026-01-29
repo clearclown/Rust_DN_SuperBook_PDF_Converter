@@ -23,8 +23,8 @@ RUN rm -rf src
 
 # Copy actual source
 COPY src ./src
-COPY benches ./benches 2>/dev/null || true
-COPY tests ./tests 2>/dev/null || true
+COPY benches ./benches
+COPY tests ./tests
 
 # Build release binary
 RUN touch src/main.rs && cargo build --release --features web
