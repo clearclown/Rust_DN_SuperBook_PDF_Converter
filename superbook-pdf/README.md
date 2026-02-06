@@ -1,7 +1,7 @@
 # superbook-pdf
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.78%2B-orange.svg)](https://www.rust-lang.org/)
 [![crates.io](https://img.shields.io/crates/v/superbook-pdf.svg)](https://crates.io/crates/superbook-pdf)
 
 > **Fork of [dnobori/DN_SuperBook_PDF_Converter](https://github.com/dnobori/DN_SuperBook_PDF_Converter)**
@@ -55,7 +55,7 @@ RealESRGAN による AI 超解像で、文字のエッジが鮮明になり、�
 | 項目 | 要件 |
 |------|------|
 | OS | Linux / macOS / Windows |
-| Rust | 1.75 以上 (ソースビルド時) |
+| Rust | 1.78 以上 (ソースビルド時) |
 | Poppler | `pdftoppm` コマンド |
 
 AI機能を使う場合は、Python 3.10以上と NVIDIA GPU (CUDA 11.8+) が必要です。
@@ -136,18 +136,22 @@ echo 'export SUPERBOOK_VENV=/path/to/ai_bridge/.venv' >> ~/.bashrc
 **ワンライナーでPDF変換:**
 
 ```bash
+# まずイメージをビルド
+docker build -t superbook-pdf .
+
 # Docker (GPU使用)
 docker run --rm --gpus all \
   -v $(pwd)/input:/data/input:ro \
   -v $(pwd)/output:/data/output:rw \
-  ghcr.io/clearclown/superbook-pdf:latest \
+  superbook-pdf:latest \
   convert /data/input/book.pdf -o /data/output/ --advanced --ocr
 
 # Podman (GPU使用)
+podman build -t superbook-pdf .
 podman run --rm --device nvidia.com/gpu=all \
   -v $(pwd)/input:/data/input:ro \
   -v $(pwd)/output:/data/output:rw \
-  ghcr.io/clearclown/superbook-pdf:latest \
+  superbook-pdf:latest \
   convert /data/input/book.pdf -o /data/output/ --advanced --ocr
 ```
 
