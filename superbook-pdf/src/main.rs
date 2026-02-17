@@ -16,6 +16,8 @@ use superbook_pdf::{
     CliOverrides, Config,
     // Pipeline
     PdfPipeline, ProgressCallback,
+    // Markdown pipeline
+    MarkdownPipeline,
     // Progress tracking
     ProgressTracker,
     // Reprocess
@@ -30,6 +32,7 @@ fn main() {
 
     let result = match cli.command {
         Commands::Convert(args) => run_convert(&args),
+        Commands::Markdown(args) => run_markdown(&args),
         Commands::Reprocess(args) => run_reprocess(&args),
         Commands::Markdown(args) => run_markdown(&args),
         Commands::Info => run_info(),
@@ -249,6 +252,57 @@ fn run_convert(args: &ConvertArgs) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+// ============ Markdown Command ============
+
+fn run_markdown(args: &MarkdownArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let start_time = Instant::now();
+
+    // Validate input path
+    if !args.input.exists() {
+        eprintln!("Error: Input path does not exist: {}", args.input.display());
+        std::process::exit(exit_codes::INPUT_NOT_FOUND);
+    }
+
+    if !args.input.is_file() {
+        eprintln!("Error: Input must be a PDF file: {}", args.input.display());
+        std::process::exit(exit_codes::INVALID_ARGS);
+    }
+
+    let verbose = args.verbose > 0;
+    let progress = VerboseProgress::new(args.verbose.into());
+
+    if verbose {
+        println!("Markdown変換開始: {}", args.input.display());
+        println!("出力先: {}", args.output.display());
+        if args.resume {
+            println!("リカバリーモード: 有効");
+        }
+    }
+
+    let pipeline = MarkdownPipeline::from_args(args);
+
+    match pipeline.run(&args.input, &args.output, args.resume, &progress) {
+        Ok(result) => {
+            let elapsed = start_time.elapsed();
+
+            if !args.quiet {
+                println!();
+                println!("=== Markdown変換完了 ===");
+                println!("ページ数: {}", result.page_count);
+                println!("画像数:   {}", result.images_count);
+                println!("出力:     {}", result.output_path.display());
+                println!("処理時間: {:.2}s", elapsed.as_secs_f64());
+            }
+
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            Err(e.into())
+        }
+    }
 }
 
 // ============ Helper Functions ============

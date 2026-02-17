@@ -123,9 +123,12 @@ pub mod cli;
 pub mod config;
 pub mod color_stats;
 pub mod deskew;
+pub mod figure_detect;
 pub mod finalize;
 pub mod image_extract;
 pub mod margin;
+pub mod markdown_gen;
+pub mod markdown_pipeline;
 pub mod normalize;
 pub mod page_number;
 pub mod parallel;
@@ -218,6 +221,14 @@ pub use progress::{build_progress_bar, OutputMode, ProcessingStage, ProgressTrac
 pub use cache::{
     should_skip_processing, CacheDigest, ProcessingCache, ProcessingResult, CACHE_EXTENSION,
     CACHE_VERSION,
+};
+pub use figure_detect::{
+    FigureDetectError, FigureDetectOptions, FigureDetector, FigureRegion, PageClassification,
+    RegionType,
+};
+pub use markdown_gen::{ContentElement, MarkdownGenError, MarkdownGenerator, PageContent};
+pub use markdown_pipeline::{
+    MarkdownPipeline, MarkdownPipelineError, MarkdownPipelineResult, ProgressState,
 };
 pub use pipeline::{
     calculate_optimal_chunk_size, process_in_chunks, PdfPipeline, PipelineConfig, PipelineError,
