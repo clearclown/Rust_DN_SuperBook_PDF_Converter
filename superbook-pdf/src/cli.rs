@@ -98,6 +98,8 @@ pub enum Commands {
     Info,
     /// Show cache information for a processed file
     CacheInfo(CacheInfoArgs),
+    /// Convert scanned PDF to Markdown with figures extracted
+    Markdown(MarkdownArgs),
     /// Start web server for browser-based conversion
     #[cfg(feature = "web")]
     Serve(ServeArgs),
@@ -299,6 +301,80 @@ impl ReprocessArgs {
     /// Get page indices to reprocess (empty means all failed)
     pub fn page_indices(&self) -> Vec<usize> {
         self.pages.clone().unwrap_or_default()
+    }
+}
+
+/// Arguments for the markdown command
+#[derive(Args, Debug)]
+#[command(after_help = r#"
+Examples:
+  # 基本的なMarkdown変換
+  superbook-pdf markdown input.pdf -o output/
+
+  # AI超解像付きMarkdown変換
+  superbook-pdf markdown input.pdf -o output/ --upscale --gpu
+
+  # 最初の20ページのみテスト
+  superbook-pdf markdown input.pdf -o output/ --max-pages 20
+
+  # 中断後の再開
+  superbook-pdf markdown input.pdf -o output/ --resume
+"#)]
+pub struct MarkdownArgs {
+    /// Input PDF file
+    pub input: PathBuf,
+
+    /// Output directory
+    #[arg(short = 'o', long = "output", default_value = "./output")]
+    pub output: PathBuf,
+
+    /// Resume interrupted processing
+    #[arg(long)]
+    pub resume: bool,
+
+    /// Output DPI (1-4800)
+    #[arg(long, default_value_t = 300, value_parser = clap::value_parser!(u32).range(1..=4800))]
+    pub dpi: u32,
+
+    /// Enable AI upscaling before OCR
+    #[arg(long)]
+    pub upscale: bool,
+
+    /// Enable deskew correction
+    #[arg(long, default_value_t = true)]
+    #[arg(action = clap::ArgAction::Set)]
+    pub deskew: bool,
+
+    /// Disable deskew correction
+    #[arg(long = "no-deskew")]
+    #[arg(action = clap::ArgAction::SetTrue)]
+    no_deskew: bool,
+
+    /// Maximum pages to process
+    #[arg(long)]
+    pub max_pages: Option<usize>,
+
+    /// Figure detection sensitivity (0.0-1.0)
+    #[arg(long)]
+    pub figure_sensitivity: Option<f32>,
+
+    /// Verbosity level (-v, -vv, -vvv)
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
+
+    /// Suppress progress output
+    #[arg(short, long)]
+    pub quiet: bool,
+
+    /// Enable GPU processing
+    #[arg(short, long)]
+    pub gpu: bool,
+}
+
+impl MarkdownArgs {
+    /// Get effective deskew setting (considering --no-deskew flag)
+    pub fn effective_deskew(&self) -> bool {
+        self.deskew && !self.no_deskew
     }
 }
 
