@@ -33,15 +33,28 @@ mod shutdown;
 mod websocket;
 mod worker;
 
-pub use auth::{ApiKey, AuthConfig, AuthError, AuthManager, AuthResult, AuthStatusResponse, Scope, extract_api_key};
+pub use auth::{
+    extract_api_key, ApiKey, AuthConfig, AuthError, AuthManager, AuthResult, AuthStatusResponse,
+    Scope,
+};
 pub use batch::{BatchJob, BatchProgress, BatchQueue, BatchStatus, Priority};
 pub use cors::CorsConfig;
 pub use job::{ConvertOptions, Job, JobQueue, JobStatus, Progress};
-pub use metrics::{BatchStatistics, JobStatistics, MetricsCollector, ServerInfo, StatsResponse, SystemMetrics};
-pub use persistence::{HistoryQuery, HistoryResponse, JsonJobStore, JobStore, PersistenceConfig, RecoveryManager, RecoveryResult, RetryResponse, StorageBackend, StoreError};
-pub use rate_limit::{RateLimitConfig, RateLimitError, RateLimitResult, RateLimiter, RateLimitStatus};
+pub use metrics::{
+    BatchStatistics, JobStatistics, MetricsCollector, ServerInfo, StatsResponse, SystemMetrics,
+};
+pub use persistence::{
+    HistoryQuery, HistoryResponse, JobStore, JsonJobStore, PersistenceConfig, RecoveryManager,
+    RecoveryResult, RetryResponse, StorageBackend, StoreError,
+};
+pub use rate_limit::{
+    RateLimitConfig, RateLimitError, RateLimitResult, RateLimitStatus, RateLimiter,
+};
 pub use server::{ServerConfig, WebServer};
-pub use shutdown::{ShutdownConfig, ShutdownCoordinator, ShutdownResult, ShutdownSignal, graceful_shutdown, wait_for_shutdown_signal};
+pub use shutdown::{
+    graceful_shutdown, wait_for_shutdown_signal, ShutdownConfig, ShutdownCoordinator,
+    ShutdownResult, ShutdownSignal,
+};
 pub use websocket::{
     generate_preview_base64, preview_stage, WsBroadcaster, WsMessage, PREVIEW_WIDTH,
 };

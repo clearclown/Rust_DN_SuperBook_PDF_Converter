@@ -79,15 +79,8 @@ impl CorsConfig {
         Self {
             enabled: true,
             allowed_origins: Some(origins),
-            allowed_methods: vec![
-                "GET".to_string(),
-                "POST".to_string(),
-                "DELETE".to_string(),
-            ],
-            allowed_headers: vec![
-                "Content-Type".to_string(),
-                "Authorization".to_string(),
-            ],
+            allowed_methods: vec!["GET".to_string(), "POST".to_string(), "DELETE".to_string()],
+            allowed_headers: vec!["Content-Type".to_string(), "Authorization".to_string()],
             expose_headers: vec![],
             allow_credentials: false,
             max_age_secs: 3600, // 1 hour
@@ -131,9 +124,9 @@ impl CorsConfig {
             return false;
         }
 
-        self.allowed_headers.iter().any(|h| {
-            h == "*" || h.eq_ignore_ascii_case(header)
-        })
+        self.allowed_headers
+            .iter()
+            .any(|h| h == "*" || h.eq_ignore_ascii_case(header))
     }
 
     /// Convert to tower-http CorsLayer
@@ -149,10 +142,7 @@ impl CorsConfig {
         if self.allowed_origins.is_none() {
             layer = layer.allow_origin(Any);
         } else if let Some(origins) = &self.allowed_origins {
-            let origins: Vec<_> = origins
-                .iter()
-                .filter_map(|o| o.parse().ok())
-                .collect();
+            let origins: Vec<_> = origins.iter().filter_map(|o| o.parse().ok()).collect();
             if !origins.is_empty() {
                 layer = layer.allow_origin(origins);
             }

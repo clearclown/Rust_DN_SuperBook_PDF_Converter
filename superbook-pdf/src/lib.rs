@@ -120,8 +120,8 @@
 pub mod ai_bridge;
 pub mod cache;
 pub mod cli;
-pub mod config;
 pub mod color_stats;
+pub mod config;
 pub mod deskew;
 pub mod figure_detect;
 pub mod finalize;
@@ -133,9 +133,9 @@ pub mod normalize;
 pub mod page_number;
 pub mod parallel;
 pub mod pdf_reader;
+pub mod pdf_writer;
 pub mod pipeline;
 pub mod progress;
-pub mod pdf_writer;
 pub mod realesrgan;
 pub mod reprocess;
 pub mod util;
@@ -152,17 +152,18 @@ pub mod markdown;
 
 // Re-exports for convenience
 pub use ai_bridge::{
-    AiBridgeConfig, AiBridgeConfigBuilder, AiBridgeError, AiTool, SubprocessBridge,
+    resolve_bridge_script, AiBridgeConfig, AiBridgeConfigBuilder, AiBridgeError, AiTool,
+    SubprocessBridge,
 };
+#[cfg(feature = "web")]
+pub use cli::ServeArgs;
 pub use cli::{
     create_page_progress_bar, create_progress_bar, create_spinner, CacheInfoArgs, Cli, Commands,
     ConvertArgs, DeblurAlgorithmCli, ExitCode, MarkdownArgs, ReprocessArgs, ShadowRemovalMode,
     TextDirectionCli, ValidationProviderCli,
 };
-#[cfg(feature = "web")]
-pub use cli::ServeArgs;
 pub use config::{
-    AdvancedConfig, CliOverrides, CleanupConfig, Config, ConfigError, GeneralConfig,
+    AdvancedConfig, CleanupConfig, CliOverrides, Config, ConfigError, GeneralConfig,
     MarkdownConfig, MarkdownValidationConfig, OcrConfig, OutputConfig, ProcessingConfig,
 };
 pub use deskew::{
@@ -186,7 +187,9 @@ pub use page_number::{
     PageNumberRect, PageOffsetAnalyzer, PageOffsetResult, Point, Rectangle, TesseractPageDetector,
 };
 pub use pdf_reader::{LopdfReader, PdfDocument, PdfMetadata, PdfPage, PdfReaderError};
-pub use pdf_writer::{PdfWriterError, PdfWriterOptions, PdfWriterOptionsBuilder, PrintPdfWriter};
+pub use pdf_writer::{
+    find_cjk_font, PdfWriterError, PdfWriterOptions, PdfWriterOptionsBuilder, PrintPdfWriter,
+};
 pub use realesrgan::{RealEsrgan, RealEsrganError, RealEsrganOptions, RealEsrganOptionsBuilder};
 pub use reprocess::{
     PageStatus, ReprocessError, ReprocessOptions, ReprocessResult, ReprocessState,
@@ -201,52 +204,52 @@ pub use yomitoku::{
 };
 
 // Phase 1-6: Advanced processing modules
-pub use color_stats::{ColorAnalyzer, ColorStats, ColorStatsError, GlobalColorParam};
-pub use finalize::{
-    FinalizeError, FinalizeOptions, FinalizeOptionsBuilder, FinalizeResult, PageFinalizer,
-};
-pub use normalize::{
-    ImageNormalizer, NormalizeError, NormalizeOptions, NormalizeOptionsBuilder, NormalizeResult,
-    PaddingMode, PaperColor, Resampler,
-};
-pub use vertical_detect::{
-    detect_book_vertical_writing, detect_vertical_probability, BookVerticalResult,
-    VerticalDetectError, VerticalDetectOptions, VerticalDetectResult,
-};
-pub use parallel::{
-    parallel_map, parallel_process, ParallelError, ParallelOptions, ParallelProcessor,
-    ParallelResult,
-};
-pub use progress::{build_progress_bar, OutputMode, ProcessingStage, ProgressTracker};
 pub use cache::{
     should_skip_processing, CacheDigest, ProcessingCache, ProcessingResult, CACHE_EXTENSION,
     CACHE_VERSION,
 };
+pub use color_stats::{ColorAnalyzer, ColorStats, ColorStatsError, GlobalColorParam};
 pub use figure_detect::{
     FigureDetectError, FigureDetectOptions, FigureDetector, FigureRegion, PageClassification,
     RegionType,
+};
+pub use finalize::{
+    FinalizeError, FinalizeOptions, FinalizeOptionsBuilder, FinalizeResult, PageFinalizer,
 };
 pub use markdown_gen::{ContentElement, MarkdownGenError, MarkdownGenerator, PageContent};
 pub use markdown_pipeline::{
     MarkdownPipeline, MarkdownPipelineError, MarkdownPipelineResult, ProgressState,
 };
+pub use normalize::{
+    ImageNormalizer, NormalizeError, NormalizeOptions, NormalizeOptionsBuilder, NormalizeResult,
+    PaddingMode, PaperColor, Resampler,
+};
+pub use parallel::{
+    parallel_map, parallel_process, ParallelError, ParallelOptions, ParallelProcessor,
+    ParallelResult,
+};
 pub use pipeline::{
     calculate_optimal_chunk_size, process_in_chunks, PdfPipeline, PipelineConfig, PipelineError,
     PipelineResult, ProcessingContext, ProgressCallback, SilentProgress,
+};
+pub use progress::{build_progress_bar, OutputMode, ProcessingStage, ProgressTracker};
+pub use vertical_detect::{
+    detect_book_vertical_writing, detect_vertical_probability, BookVerticalResult,
+    VerticalDetectError, VerticalDetectOptions, VerticalDetectResult,
 };
 
 // Web server (optional feature)
 #[cfg(feature = "web")]
 pub use web::{
-    generate_preview_base64, preview_stage, ApiKey, AuthConfig, AuthError, AuthManager,
-    AuthResult, AuthStatusResponse, BatchJob, BatchProgress, BatchQueue, BatchStatistics,
-    BatchStatus, ConvertOptions as WebConvertOptions, CorsConfig, HistoryQuery, HistoryResponse,
-    Job, JobQueue, JobStatistics, JobStatus, JobStore, JsonJobStore, MetricsCollector,
-    PersistenceConfig, Priority, Progress as WebProgress, RateLimitConfig, RateLimitError,
-    RateLimitResult, RateLimiter, RateLimitStatus, RecoveryManager, RecoveryResult, RetryResponse,
-    Scope, ServerConfig, ServerInfo, ShutdownConfig, ShutdownCoordinator, ShutdownResult,
-    ShutdownSignal, StatsResponse, StorageBackend, StoreError, SystemMetrics, WebServer,
-    WsBroadcaster, WsMessage, extract_api_key, graceful_shutdown, wait_for_shutdown_signal,
+    extract_api_key, generate_preview_base64, graceful_shutdown, preview_stage,
+    wait_for_shutdown_signal, ApiKey, AuthConfig, AuthError, AuthManager, AuthResult,
+    AuthStatusResponse, BatchJob, BatchProgress, BatchQueue, BatchStatistics, BatchStatus,
+    ConvertOptions as WebConvertOptions, CorsConfig, HistoryQuery, HistoryResponse, Job, JobQueue,
+    JobStatistics, JobStatus, JobStore, JsonJobStore, MetricsCollector, PersistenceConfig,
+    Priority, Progress as WebProgress, RateLimitConfig, RateLimitError, RateLimitResult,
+    RateLimitStatus, RateLimiter, RecoveryManager, RecoveryResult, RetryResponse, Scope,
+    ServerConfig, ServerInfo, ShutdownConfig, ShutdownCoordinator, ShutdownResult, ShutdownSignal,
+    StatsResponse, StorageBackend, StoreError, SystemMetrics, WebServer, WsBroadcaster, WsMessage,
     PREVIEW_WIDTH,
 };
 
@@ -1211,5 +1214,70 @@ mod tests {
                 code
             );
         }
+    }
+
+    // ============ Image Crate Regression Tests (Issue #41) ============
+
+    #[test]
+    fn test_image_crate_jpeg_decode() {
+        // Regression test: JPEG decoding must work (zune-jpeg compatibility)
+        use image::{ImageBuffer, Rgb};
+        use std::io::Cursor;
+
+        // Create a simple 2x2 RGB image and encode as JPEG
+        let img = ImageBuffer::from_fn(2, 2, |x, y| Rgb([(x * 127) as u8, (y * 127) as u8, 128u8]));
+        let mut jpeg_data = Vec::new();
+        img.write_to(&mut Cursor::new(&mut jpeg_data), image::ImageFormat::Jpeg)
+            .expect("JPEG encoding should succeed");
+
+        // Decode the JPEG back
+        let decoded = image::load_from_memory_with_format(&jpeg_data, image::ImageFormat::Jpeg)
+            .expect("JPEG decoding should succeed (zune-jpeg regression)");
+        assert_eq!(decoded.width(), 2);
+        assert_eq!(decoded.height(), 2);
+    }
+
+    #[test]
+    fn test_image_crate_png_decode() {
+        // Regression test: PNG decoding must work
+        use image::{ImageBuffer, Rgba};
+        use std::io::Cursor;
+
+        let img = ImageBuffer::from_fn(4, 4, |x, y| {
+            Rgba([(x * 60) as u8, (y * 60) as u8, 100u8, 255u8])
+        });
+        let mut png_data = Vec::new();
+        img.write_to(&mut Cursor::new(&mut png_data), image::ImageFormat::Png)
+            .expect("PNG encoding should succeed");
+
+        let decoded = image::load_from_memory_with_format(&png_data, image::ImageFormat::Png)
+            .expect("PNG decoding should succeed");
+        assert_eq!(decoded.width(), 4);
+        assert_eq!(decoded.height(), 4);
+    }
+
+    #[test]
+    fn test_image_crate_format_auto_detect() {
+        // Regression test: Auto format detection from bytes
+        use image::{ImageBuffer, Rgb};
+        use std::io::Cursor;
+
+        // Create JPEG
+        let img = ImageBuffer::from_fn(8, 8, |_, _| Rgb([128u8, 128u8, 128u8]));
+        let mut jpeg_data = Vec::new();
+        img.write_to(&mut Cursor::new(&mut jpeg_data), image::ImageFormat::Jpeg)
+            .expect("JPEG encoding should succeed");
+
+        // Auto-detect format from memory
+        let guessed = image::guess_format(&jpeg_data).expect("Format auto-detection should work");
+        assert_eq!(guessed, image::ImageFormat::Jpeg);
+
+        // Create PNG
+        let mut png_data = Vec::new();
+        img.write_to(&mut Cursor::new(&mut png_data), image::ImageFormat::Png)
+            .expect("PNG encoding should succeed");
+
+        let guessed = image::guess_format(&png_data).expect("Format auto-detection should work");
+        assert_eq!(guessed, image::ImageFormat::Png);
     }
 }

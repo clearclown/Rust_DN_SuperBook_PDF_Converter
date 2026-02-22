@@ -182,10 +182,7 @@ impl MarkdownRenderer {
 
     /// Render a figure
     pub fn render_figure(&self, element: &DetectedElement) -> String {
-        let image_path = element
-            .image_path
-            .as_deref()
-            .unwrap_or("figure.png");
+        let image_path = element.image_path.as_deref().unwrap_or("figure.png");
 
         let caption = element.caption.as_deref().unwrap_or("");
 
@@ -323,36 +320,18 @@ mod tests {
     fn test_render_heading() {
         let renderer = MarkdownRenderer::new();
 
-        assert_eq!(
-            renderer.render_heading("Title", 1),
-            "# Title\n\n"
-        );
-        assert_eq!(
-            renderer.render_heading("Section", 2),
-            "## Section\n\n"
-        );
-        assert_eq!(
-            renderer.render_heading("Deep", 6),
-            "###### Deep\n\n"
-        );
+        assert_eq!(renderer.render_heading("Title", 1), "# Title\n\n");
+        assert_eq!(renderer.render_heading("Section", 2), "## Section\n\n");
+        assert_eq!(renderer.render_heading("Deep", 6), "###### Deep\n\n");
     }
 
     #[test]
     fn test_render_paragraph() {
         let renderer = MarkdownRenderer::new();
 
-        assert_eq!(
-            renderer.render_paragraph("Hello world"),
-            "Hello world\n\n"
-        );
-        assert_eq!(
-            renderer.render_paragraph("  Trimmed  "),
-            "Trimmed\n\n"
-        );
-        assert_eq!(
-            renderer.render_paragraph(""),
-            ""
-        );
+        assert_eq!(renderer.render_paragraph("Hello world"), "Hello world\n\n");
+        assert_eq!(renderer.render_paragraph("  Trimmed  "), "Trimmed\n\n");
+        assert_eq!(renderer.render_paragraph(""), "");
     }
 
     #[test]
@@ -434,10 +413,8 @@ mod tests {
         let renderer = MarkdownRenderer::new();
 
         let mut page = PageContent::new(1, (800, 600));
-        let mut block = crate::markdown::types::TextBlock::new(
-            "Hello".to_string(),
-            BoundingBox::default(),
-        );
+        let mut block =
+            crate::markdown::types::TextBlock::new("Hello".to_string(), BoundingBox::default());
         block.is_heading = true;
         block.heading_level = 1;
         page.add_block(block);

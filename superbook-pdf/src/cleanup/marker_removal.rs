@@ -355,11 +355,8 @@ impl MarkerRemover {
         let (width, height) = image.dimensions();
         let total_pixels = width * height;
 
-        let mut color_counts: Vec<(HighlighterColor, u32)> = options
-            .colors
-            .iter()
-            .map(|c| (*c, 0u32))
-            .collect();
+        let mut color_counts: Vec<(HighlighterColor, u32)> =
+            options.colors.iter().map(|c| (*c, 0u32)).collect();
 
         let mut total_marker_pixels = 0u32;
 
@@ -423,11 +420,8 @@ impl MarkerRemover {
             None
         };
 
-        let mut color_counts: Vec<(HighlighterColor, u32)> = options
-            .colors
-            .iter()
-            .map(|c| (*c, 0u32))
-            .collect();
+        let mut color_counts: Vec<(HighlighterColor, u32)> =
+            options.colors.iter().map(|c| (*c, 0u32)).collect();
 
         let mut total_marker_pixels = 0u32;
 

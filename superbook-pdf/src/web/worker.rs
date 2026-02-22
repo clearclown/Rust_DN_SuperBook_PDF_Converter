@@ -93,7 +93,7 @@ fn to_pipeline_config(options: &ConvertOptions) -> PipelineConfig {
         save_debug: false,
         jpeg_quality: 90,
         threads: None,
-        max_memory_mb: 0,  // Auto-detect
+        max_memory_mb: 0, // Auto-detect
         chunk_size: 0,    // Auto-calculate
     }
 }
@@ -279,7 +279,11 @@ impl WorkerPool {
             });
         }
 
-        Self { sender, work_dir, worker_count }
+        Self {
+            sender,
+            work_dir,
+            worker_count,
+        }
     }
 
     /// Submit a job for processing

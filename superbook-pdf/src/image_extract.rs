@@ -763,8 +763,7 @@ impl PopplerExtractor {
             }
             ImageFormat::Jpeg { quality } => {
                 cmd.arg("-jpeg");
-                cmd.arg("-jpegopt")
-                    .arg(format!("quality={}", quality));
+                cmd.arg("-jpegopt").arg(format!("quality={}", quality));
             }
             ImageFormat::Tiff => {
                 cmd.arg("-tiff");
@@ -2287,10 +2286,7 @@ mod tests {
         // TC-EXT-MAC-006: When no background, -alpha should not be present
         let pdf_path = Path::new("/test/input.pdf");
         let output_path = Path::new("/test/output.png");
-        let options = ExtractOptions::builder()
-            .dpi(300)
-            .no_background()
-            .build();
+        let options = ExtractOptions::builder().dpi(300).no_background().build();
 
         let args = MagickExtractor::build_magick_args(pdf_path, 0, output_path, &options);
 

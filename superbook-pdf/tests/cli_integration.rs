@@ -72,7 +72,8 @@ fn test_convert_dry_run_single_file() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
         ])
         .assert()
@@ -100,7 +101,8 @@ fn test_convert_dry_run_with_options() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "--dpi",
             "600",
@@ -121,7 +123,8 @@ fn test_convert_dry_run_gpu_options() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "--gpu=true",
             "--upscale=true",
@@ -138,7 +141,8 @@ fn test_convert_dry_run_thread_count() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "-t",
             "4",
@@ -153,7 +157,12 @@ fn test_convert_empty_directory() {
     let temp_dir = TempDir::new().unwrap();
 
     superbook_cmd()
-        .args(["convert", temp_dir.path().to_str().unwrap(), "-o", "/tmp/out"])
+        .args([
+            "convert",
+            temp_dir.path().to_str().unwrap(),
+            "-o",
+            "/tmp/out",
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains("No PDF files found"));
@@ -189,7 +198,8 @@ fn test_verbose_levels() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "-v",
         ])
@@ -201,7 +211,8 @@ fn test_verbose_levels() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "-vv",
         ])
@@ -231,7 +242,8 @@ fn test_exit_code_success_dry_run() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
         ])
         .assert()
@@ -264,7 +276,12 @@ fn test_exit_code_no_pdfs_in_directory() {
     // Empty directory should return exit code 3 (INPUT_NOT_FOUND - no PDFs)
     let temp_dir = TempDir::new().unwrap();
     superbook_cmd()
-        .args(["convert", temp_dir.path().to_str().unwrap(), "-o", "/tmp/out"])
+        .args([
+            "convert",
+            temp_dir.path().to_str().unwrap(),
+            "-o",
+            "/tmp/out",
+        ])
         .assert()
         .code(3);
 }
@@ -276,7 +293,8 @@ fn test_convert_dry_run_ocr_enabled() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "--ocr",
         ])
@@ -294,7 +312,8 @@ fn test_convert_dry_run_quiet_mode() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "-q",
         ])
@@ -310,7 +329,8 @@ fn test_convert_dry_run_no_upscale() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "--no-upscale",
         ])
@@ -326,7 +346,8 @@ fn test_convert_dry_run_no_deskew() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "--no-deskew",
         ])
@@ -342,7 +363,8 @@ fn test_convert_dry_run_no_gpu() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "--no-gpu",
         ])
@@ -371,7 +393,8 @@ fn test_convert_dry_run_all_options_enabled() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "--dpi",
             "600",
@@ -401,7 +424,8 @@ fn test_convert_dry_run_all_options_disabled() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "--no-deskew",
             "--no-upscale",
@@ -421,7 +445,8 @@ fn test_convert_invalid_dpi_zero() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dpi",
             "0",
         ])
@@ -436,7 +461,8 @@ fn test_convert_negative_margin() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--margin-trim",
             "-1.0",
         ])
@@ -461,7 +487,8 @@ fn test_convert_short_flags_combined() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "--ocr",
             "-m",
@@ -524,7 +551,8 @@ fn test_config_nonexistent_file_warning() {
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "--config",
             "/nonexistent/config.toml",
@@ -555,7 +583,8 @@ deskew = false
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "--config",
             config_path.to_str().unwrap(),
@@ -584,7 +613,8 @@ dpi = 600
         .args([
             "convert",
             "tests/fixtures/sample.pdf",
-            "-o", "/tmp/out",
+            "-o",
+            "/tmp/out",
             "--dry-run",
             "--config",
             config_path.to_str().unwrap(),

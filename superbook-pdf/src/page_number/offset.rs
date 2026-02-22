@@ -60,7 +60,10 @@ pub fn calc_overlap_center(bboxes: &[Rectangle]) -> Point {
     let total_pages = bboxes.len();
 
     // Step 1: Expand each bbox by 3% margin
-    let expanded: Vec<Rectangle> = bboxes.iter().map(|b| b.expand(BBOX_MARGIN_PERCENT)).collect();
+    let expanded: Vec<Rectangle> = bboxes
+        .iter()
+        .map(|b| b.expand(BBOX_MARGIN_PERCENT))
+        .collect();
 
     // Step 2: Count containment for each bbox
     // For each bbox, count how many other bboxes contain it
@@ -97,10 +100,15 @@ pub fn calc_overlap_center(bboxes: &[Rectangle]) -> Point {
     area_sorted.sort_by_key(|(_, area)| *area);
 
     let take_count = ((area_sorted.len() as f64 * TOP_SMALL_BBOX_RATIO).ceil() as usize).max(1);
-    let smallest_indices: Vec<usize> = area_sorted.iter().take(take_count).map(|(idx, _)| *idx).collect();
+    let smallest_indices: Vec<usize> = area_sorted
+        .iter()
+        .take(take_count)
+        .map(|(idx, _)| *idx)
+        .collect();
 
     // Step 5: Calculate the maximum overlap region center
-    let selected_bboxes: Vec<&Rectangle> = smallest_indices.iter().map(|&idx| &expanded[idx]).collect();
+    let selected_bboxes: Vec<&Rectangle> =
+        smallest_indices.iter().map(|&idx| &expanded[idx]).collect();
     calc_intersection_center(&selected_bboxes)
 }
 
@@ -151,10 +159,7 @@ fn calc_average_center(bboxes: &[&Rectangle]) -> Point {
 ///
 /// # Returns
 /// The calculated reference point for this group
-pub fn calc_group_reference_position(
-    positions: &[(usize, PageNumberRect)],
-    is_odd: bool,
-) -> Point {
+pub fn calc_group_reference_position(positions: &[(usize, PageNumberRect)], is_odd: bool) -> Point {
     let filtered: Vec<Rectangle> = positions
         .iter()
         .filter(|(page, _)| (*page % 2 == 1) == is_odd)
@@ -606,21 +611,36 @@ mod tests {
             DetectedPageNumber {
                 page_index: 0,
                 number: Some(1),
-                position: PageNumberRect { x: 500, y: 100, width: 50, height: 20 },
+                position: PageNumberRect {
+                    x: 500,
+                    y: 100,
+                    width: 50,
+                    height: 20,
+                },
                 confidence: 0.9,
                 raw_text: "1".to_string(),
             },
             DetectedPageNumber {
                 page_index: 1,
                 number: Some(2),
-                position: PageNumberRect { x: 500, y: 100, width: 50, height: 20 },
+                position: PageNumberRect {
+                    x: 500,
+                    y: 100,
+                    width: 50,
+                    height: 20,
+                },
                 confidence: 0.9,
                 raw_text: "2".to_string(),
             },
             DetectedPageNumber {
                 page_index: 2,
                 number: Some(3),
-                position: PageNumberRect { x: 500, y: 100, width: 50, height: 20 },
+                position: PageNumberRect {
+                    x: 500,
+                    y: 100,
+                    width: 50,
+                    height: 20,
+                },
                 confidence: 0.9,
                 raw_text: "3".to_string(),
             },
@@ -646,7 +666,12 @@ mod tests {
                     logical_page: Some(1),
                     shift_x: 10,
                     shift_y: 5,
-                    page_number_position: Some(PageNumberRect { x: 100, y: 50, width: 30, height: 20 }),
+                    page_number_position: Some(PageNumberRect {
+                        x: 100,
+                        y: 50,
+                        width: 30,
+                        height: 20,
+                    }),
                     is_odd: true,
                 },
                 // Page 2 is missing
@@ -655,7 +680,12 @@ mod tests {
                     logical_page: Some(3),
                     shift_x: 10,
                     shift_y: 5,
-                    page_number_position: Some(PageNumberRect { x: 100, y: 50, width: 30, height: 20 }),
+                    page_number_position: Some(PageNumberRect {
+                        x: 100,
+                        y: 50,
+                        width: 30,
+                        height: 20,
+                    }),
                     is_odd: true,
                 },
             ],
@@ -724,28 +754,48 @@ mod tests {
             DetectedPageNumber {
                 page_index: 0,
                 number: Some(1),
-                position: PageNumberRect { x: 100, y: 50, width: 50, height: 20 }, // Odd: left
+                position: PageNumberRect {
+                    x: 100,
+                    y: 50,
+                    width: 50,
+                    height: 20,
+                }, // Odd: left
                 confidence: 0.9,
                 raw_text: "1".to_string(),
             },
             DetectedPageNumber {
                 page_index: 1,
                 number: Some(2),
-                position: PageNumberRect { x: 900, y: 50, width: 50, height: 20 }, // Even: right
+                position: PageNumberRect {
+                    x: 900,
+                    y: 50,
+                    width: 50,
+                    height: 20,
+                }, // Even: right
                 confidence: 0.9,
                 raw_text: "2".to_string(),
             },
             DetectedPageNumber {
                 page_index: 2,
                 number: Some(3),
-                position: PageNumberRect { x: 105, y: 52, width: 50, height: 20 }, // Odd: left
+                position: PageNumberRect {
+                    x: 105,
+                    y: 52,
+                    width: 50,
+                    height: 20,
+                }, // Odd: left
                 confidence: 0.9,
                 raw_text: "3".to_string(),
             },
             DetectedPageNumber {
                 page_index: 3,
                 number: Some(4),
-                position: PageNumberRect { x: 895, y: 48, width: 50, height: 20 }, // Even: right
+                position: PageNumberRect {
+                    x: 895,
+                    y: 48,
+                    width: 50,
+                    height: 20,
+                }, // Even: right
                 confidence: 0.9,
                 raw_text: "4".to_string(),
             },
@@ -829,11 +879,51 @@ mod tests {
     #[test]
     fn test_calc_group_reference_odd_pages() {
         let positions = vec![
-            (1, PageNumberRect { x: 100, y: 900, width: 50, height: 30 }),
-            (2, PageNumberRect { x: 850, y: 900, width: 50, height: 30 }),
-            (3, PageNumberRect { x: 105, y: 905, width: 50, height: 30 }),
-            (4, PageNumberRect { x: 845, y: 895, width: 50, height: 30 }),
-            (5, PageNumberRect { x: 102, y: 902, width: 50, height: 30 }),
+            (
+                1,
+                PageNumberRect {
+                    x: 100,
+                    y: 900,
+                    width: 50,
+                    height: 30,
+                },
+            ),
+            (
+                2,
+                PageNumberRect {
+                    x: 850,
+                    y: 900,
+                    width: 50,
+                    height: 30,
+                },
+            ),
+            (
+                3,
+                PageNumberRect {
+                    x: 105,
+                    y: 905,
+                    width: 50,
+                    height: 30,
+                },
+            ),
+            (
+                4,
+                PageNumberRect {
+                    x: 845,
+                    y: 895,
+                    width: 50,
+                    height: 30,
+                },
+            ),
+            (
+                5,
+                PageNumberRect {
+                    x: 102,
+                    y: 902,
+                    width: 50,
+                    height: 30,
+                },
+            ),
         ];
 
         let odd_center = calc_group_reference_position(&positions, true);
@@ -889,12 +979,20 @@ mod tests {
         // Should be approximately at the center of the cluster
         // X should be around 900-930 (right side)
         // Y should be around 1000-1020 (bottom area)
-        assert!(center.x >= 880 && center.x <= 950, "X={} not in expected range", center.x);
-        assert!(center.y >= 980 && center.y <= 1050, "Y={} not in expected range", center.y);
+        assert!(
+            center.x >= 880 && center.x <= 950,
+            "X={} not in expected range",
+            center.x
+        );
+        assert!(
+            center.y >= 980 && center.y <= 1050,
+            "Y={} not in expected range",
+            center.y
+        );
 
         // Verify reference point is within ±5px of C# expected output
         // (This tolerance allows for implementation differences)
-        let expected_x = 915;  // Approximate expected
+        let expected_x = 915; // Approximate expected
         let expected_y = 1020; // Approximate expected
         assert!((center.x - expected_x).abs() <= 20, "X deviation too large");
         assert!((center.y - expected_y).abs() <= 20, "Y deviation too large");

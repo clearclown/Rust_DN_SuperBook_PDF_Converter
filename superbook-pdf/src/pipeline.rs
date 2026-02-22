@@ -141,9 +141,7 @@ where
 
     for chunk_start in (0..total).step_by(effective_chunk_size) {
         let chunk_end = (chunk_start + effective_chunk_size).min(total);
-        let chunk: Vec<(usize, &T)> = (chunk_start..chunk_end)
-            .map(|i| (i, &items[i]))
-            .collect();
+        let chunk: Vec<(usize, &T)> = (chunk_start..chunk_end).map(|i| (i, &items[i])).collect();
 
         let chunk_results: Vec<(usize, R)> = chunk
             .par_iter()
@@ -175,6 +173,11 @@ pub trait ProgressCallback: Send + Sync {
     fn on_step_complete(&self, step: &str, message: &str);
     /// Called for debug/verbose messages
     fn on_debug(&self, message: &str);
+    /// Called for warning messages (more visible than debug)
+    fn on_warning(&self, message: &str) {
+        // Default: print to stderr
+        eprintln!("Warning: {}", message);
+    }
 }
 
 /// No-op progress callback (silent mode)
@@ -185,6 +188,7 @@ impl ProgressCallback for SilentProgress {
     fn on_step_progress(&self, _current: usize, _total: usize) {}
     fn on_step_complete(&self, _step: &str, _message: &str) {}
     fn on_debug(&self, _message: &str) {}
+    fn on_warning(&self, _message: &str) {}
 }
 
 /// Pipeline processing error
@@ -265,7 +269,7 @@ impl Default for PipelineConfig {
             save_debug: false,
             jpeg_quality: 90,
             threads: None,
-            max_memory_mb: 0,  // 0 = unlimited
+            max_memory_mb: 0, // 0 = unlimited
             chunk_size: 0,    // 0 = auto
         }
     }
@@ -290,7 +294,7 @@ impl PipelineConfig {
             save_debug: args.save_debug,
             jpeg_quality: args.jpeg_quality,
             threads: args.threads,
-            max_memory_mb: 0,  // Auto-detect based on available memory
+            max_memory_mb: 0, // Auto-detect based on available memory
             chunk_size: 0,    // Auto-calculate based on memory limit
         }
     }
@@ -444,7 +448,11 @@ impl PdfPipeline {
     }
 
     /// Process a single PDF file (silent mode)
-    pub fn process(&self, input: &Path, output_dir: &Path) -> Result<PipelineResult, PipelineError> {
+    pub fn process(
+        &self,
+        input: &Path,
+        output_dir: &Path,
+    ) -> Result<PipelineResult, PipelineError> {
         self.process_with_progress(input, output_dir, &SilentProgress)
     }
 
@@ -486,8 +494,9 @@ impl PdfPipeline {
         let extracted_dir = work_dir.join("extracted");
         std::fs::create_dir_all(&extracted_dir)?;
 
-        let mut extracted_pages = crate::LopdfExtractor::extract_auto(input, &extracted_dir, &extract_options)
-            .map_err(|e| PipelineError::ExtractionFailed(e.to_string()))?;
+        let mut extracted_pages =
+            crate::LopdfExtractor::extract_auto(input, &extracted_dir, &extract_options)
+                .map_err(|e| PipelineError::ExtractionFailed(e.to_string()))?;
 
         // Apply max_pages limit
         if let Some(max_pages) = self.config.max_pages {
@@ -500,7 +509,8 @@ impl PdfPipeline {
         progress.on_step_complete("Extracting images", &format!("{} pages", page_count));
 
         // Convert to PathBuf list
-        let mut current_images: Vec<PathBuf> = extracted_pages.iter().map(|p| p.path.clone()).collect();
+        let mut current_images: Vec<PathBuf> =
+            extracted_pages.iter().map(|p| p.path.clone()).collect();
 
         // ================================================================
         // C#版互換処理順序:
@@ -568,7 +578,13 @@ impl PdfPipeline {
 
         // Step 13: Generate PDF
         progress.on_step_start("Generating output PDF...");
-        self.step_generate_pdf(&current_images, &output_path, &reader.info, &ocr_results, progress)?;
+        self.step_generate_pdf(
+            &current_images,
+            &output_path,
+            &reader.info,
+            &ocr_results,
+            progress,
+        )?;
 
         // Get output file size
         let output_size = std::fs::metadata(&output_path)
@@ -626,7 +642,8 @@ impl PdfPipeline {
             .par_iter()
             .zip(output_paths.par_iter())
             .map(|(img_path, output_path)| {
-                match crate::ImageProcDeskewer::correct_skew(img_path, output_path, &deskew_options) {
+                match crate::ImageProcDeskewer::correct_skew(img_path, output_path, &deskew_options)
+                {
                     Ok(_) => {}
                     Err(_) => {
                         std::fs::copy(img_path, output_path).ok();
@@ -650,7 +667,10 @@ impl PdfPipeline {
         images: &[PathBuf],
         progress: &P,
     ) -> Result<Vec<PathBuf>, PipelineError> {
-        progress.on_step_start(&format!("Trimming margins ({}%)...", self.config.margin_trim));
+        progress.on_step_start(&format!(
+            "Trimming margins ({}%)...",
+            self.config.margin_trim
+        ));
         let trimmed_dir = work_dir.join("trimmed");
         std::fs::create_dir_all(&trimmed_dir)?;
 
@@ -723,7 +743,7 @@ impl PdfPipeline {
         let bridge = match crate::SubprocessBridge::new(bridge_config) {
             Ok(b) => b,
             Err(e) => {
-                progress.on_debug(&format!("RealESRGAN not available: {}", e));
+                progress.on_warning(&format!("RealESRGAN not available: {}", e));
                 return Ok(images.to_vec());
             }
         };
@@ -737,11 +757,16 @@ impl PdfPipeline {
 
         match esrgan.upscale_batch(images, &upscaled_dir, &options, None) {
             Ok(result) => {
-                progress.on_step_complete("Upscaling", &format!("{} images", result.successful.len()));
-                Ok(result.successful.iter().map(|r| r.output_path.clone()).collect())
+                progress
+                    .on_step_complete("Upscaling", &format!("{} images", result.successful.len()));
+                Ok(result
+                    .successful
+                    .iter()
+                    .map(|r| r.output_path.clone())
+                    .collect())
             }
             Err(e) => {
-                progress.on_debug(&format!("Upscaling failed: {}", e));
+                progress.on_warning(&format!("Upscaling failed: {}", e));
                 Ok(images.to_vec())
             }
         }
@@ -806,10 +831,7 @@ impl PdfPipeline {
             .map(|img_path| crate::ColorAnalyzer::calculate_stats(img_path))
             .collect();
 
-        let all_stats: Vec<_> = stats_results
-            .into_iter()
-            .filter_map(|r| r.ok())
-            .collect();
+        let all_stats: Vec<_> = stats_results.into_iter().filter_map(|r| r.ok()).collect();
 
         if all_stats.is_empty() {
             progress.on_debug("Color analysis failed, skipping correction");
@@ -884,7 +906,11 @@ impl PdfPipeline {
             .zip(output_paths.par_iter())
             .enumerate()
             .map(|(i, (img_path, output_path))| {
-                let region = if i % 2 == 0 { &unified.odd_region } else { &unified.even_region };
+                let region = if i % 2 == 0 {
+                    &unified.odd_region
+                } else {
+                    &unified.even_region
+                };
 
                 if let Ok(img) = image::open(img_path) {
                     let cropped = img.crop_imm(
@@ -917,7 +943,9 @@ impl PdfPipeline {
         let mut page_detections = Vec::new();
 
         for (i, img_path) in images.iter().enumerate() {
-            if let Ok(detection) = crate::TesseractPageDetector::detect_single(img_path, i, &page_options) {
+            if let Ok(detection) =
+                crate::TesseractPageDetector::detect_single(img_path, i, &page_options)
+            {
                 page_detections.push(detection);
             }
         }
@@ -948,7 +976,10 @@ impl PdfPipeline {
         images: &[PathBuf],
         progress: &P,
     ) -> Result<Vec<PathBuf>, PipelineError> {
-        progress.on_step_start(&format!("Finalizing output (height: {})...", self.config.output_height));
+        progress.on_step_start(&format!(
+            "Finalizing output (height: {})...",
+            self.config.output_height
+        ));
         let finalized_dir = work_dir.join("finalized");
         std::fs::create_dir_all(&finalized_dir)?;
 
@@ -964,7 +995,14 @@ impl PdfPipeline {
             .par_iter()
             .zip(output_paths.par_iter())
             .map(|(img_path, output_path)| {
-                match crate::PageFinalizer::finalize(img_path, output_path, &finalize_options, None, 0, 0) {
+                match crate::PageFinalizer::finalize(
+                    img_path,
+                    output_path,
+                    &finalize_options,
+                    None,
+                    0,
+                    0,
+                ) {
                     Ok(_) => {}
                     Err(_) => {
                         std::fs::copy(img_path, output_path).ok();
@@ -1005,7 +1043,11 @@ impl PdfPipeline {
         let vd_options = crate::VerticalDetectOptions::default();
         match crate::detect_book_vertical_writing(&gray_images, &vd_options) {
             Ok(result) => {
-                let direction = if result.is_vertical { "vertical" } else { "horizontal" };
+                let direction = if result.is_vertical {
+                    "vertical"
+                } else {
+                    "horizontal"
+                };
                 progress.on_step_complete("Text direction", direction);
                 Ok(result.is_vertical)
             }
@@ -1035,7 +1077,7 @@ impl PdfPipeline {
         let bridge = match crate::SubprocessBridge::new(bridge_config) {
             Ok(b) => b,
             Err(e) => {
-                progress.on_debug(&format!("YomiToku not available: {}", e));
+                progress.on_warning(&format!("YomiToku not available: {}", e));
                 return Ok(vec![]);
             }
         };
@@ -1096,7 +1138,11 @@ impl PdfPipeline {
                 })
                 .collect();
 
-            if pages.is_empty() { None } else { Some(OcrLayer { pages }) }
+            if pages.is_empty() {
+                None
+            } else {
+                Some(OcrLayer { pages })
+            }
         } else {
             None
         };

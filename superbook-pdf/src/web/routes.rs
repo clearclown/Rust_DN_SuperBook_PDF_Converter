@@ -14,12 +14,16 @@ use serde::Serialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use super::auth::{AuthConfig, AuthManager, AuthResult, AuthStatusResponse, extract_api_key};
+use super::auth::{extract_api_key, AuthConfig, AuthManager, AuthResult, AuthStatusResponse};
 use super::batch::{BatchJob, BatchProgress, BatchQueue, Priority};
 use super::job::{ConvertOptions, Job, JobQueue, JobStatus};
 use super::metrics::{MetricsCollector, StatsResponse, SystemMetrics};
-use super::persistence::{HistoryQuery, HistoryResponse, JsonJobStore, JobStore, PersistenceConfig, RetryResponse};
-use super::rate_limit::{RateLimitConfig, RateLimitError, RateLimitResult, RateLimiter, RateLimitStatus};
+use super::persistence::{
+    HistoryQuery, HistoryResponse, JobStore, JsonJobStore, PersistenceConfig, RetryResponse,
+};
+use super::rate_limit::{
+    RateLimitConfig, RateLimitError, RateLimitResult, RateLimitStatus, RateLimiter,
+};
 use super::websocket::{ws_job_handler, WsBroadcaster};
 use super::worker::WorkerPool;
 
@@ -49,13 +53,27 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(work_dir: PathBuf, worker_count: usize) -> Self {
-        Self::new_with_config(work_dir, worker_count, RateLimitConfig::default(), AuthConfig::default())
+        Self::new_with_config(
+            work_dir,
+            worker_count,
+            RateLimitConfig::default(),
+            AuthConfig::default(),
+        )
     }
 
     /// Create AppState with custom rate limit config (convenience method)
     #[allow(dead_code)]
-    pub fn new_with_rate_limit(work_dir: PathBuf, worker_count: usize, rate_limit_config: RateLimitConfig) -> Self {
-        Self::new_with_config(work_dir, worker_count, rate_limit_config, AuthConfig::default())
+    pub fn new_with_rate_limit(
+        work_dir: PathBuf,
+        worker_count: usize,
+        rate_limit_config: RateLimitConfig,
+    ) -> Self {
+        Self::new_with_config(
+            work_dir,
+            worker_count,
+            rate_limit_config,
+            AuthConfig::default(),
+        )
     }
 
     pub fn new_with_config(
@@ -90,8 +108,12 @@ impl AppState {
         let metrics = Arc::new(MetricsCollector::new());
         let rate_limiter = Arc::new(RateLimiter::new(rate_limit_config));
         let auth_manager = Arc::new(AuthManager::new(auth_config));
-        let worker_pool =
-            WorkerPool::new(queue.clone(), work_dir.clone(), worker_count, broadcaster.clone());
+        let worker_pool = WorkerPool::new(
+            queue.clone(),
+            work_dir.clone(),
+            worker_count,
+            broadcaster.clone(),
+        );
 
         // Initialize job store if persistence is enabled
         let job_store: Option<Arc<dyn JobStore>> = if persistence_config.enabled {
@@ -161,7 +183,12 @@ async fn ws_handler(
     Path(job_id): Path<Uuid>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    ws_job_handler(ws, Path(job_id), axum::extract::State(state.broadcaster.clone())).await
+    ws_job_handler(
+        ws,
+        Path(job_id),
+        axum::extract::State(state.broadcaster.clone()),
+    )
+    .await
 }
 
 /// WebSocket handler for batch progress updates
@@ -171,7 +198,12 @@ async fn ws_batch_handler(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     // Reuse the same WebSocket handler - batch and job use the same broadcaster
-    ws_job_handler(ws, Path(batch_id), axum::extract::State(state.broadcaster.clone())).await
+    ws_job_handler(
+        ws,
+        Path(batch_id),
+        axum::extract::State(state.broadcaster.clone()),
+    )
+    .await
 }
 
 /// Serve the index page
@@ -245,7 +277,9 @@ async fn get_metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let ws_connections = state.broadcaster.channel_count().await;
     let worker_count = state.worker_pool.worker_count();
 
-    let body = state.metrics.format_prometheus(queued, ws_connections, worker_count);
+    let body = state
+        .metrics
+        .format_prometheus(queued, ws_connections, worker_count);
 
     (
         StatusCode::OK,
@@ -297,7 +331,10 @@ async fn get_rate_limit_status(
 
     // Check current status for this IP
     let (remaining, reset_at) = match state.rate_limiter.check(ip) {
-        RateLimitResult::Allowed { remaining, reset_at } => (remaining, reset_at),
+        RateLimitResult::Allowed {
+            remaining,
+            reset_at,
+        } => (remaining, reset_at),
         RateLimitResult::Limited { retry_after } => {
             use std::time::{SystemTime, UNIX_EPOCH};
             let now = SystemTime::now()
@@ -319,17 +356,21 @@ async fn get_rate_limit_status(
 
 /// Rate limit response type alias (used by middleware integration)
 #[allow(dead_code)]
-type RateLimitResponse = (StatusCode, [(header::HeaderName, String); 4], Json<RateLimitError>);
+type RateLimitResponse = (
+    StatusCode,
+    [(header::HeaderName, String); 4],
+    Json<RateLimitError>,
+);
 
 /// Check rate limit for a request. Returns None if allowed, or an error response if limited.
 /// This function is designed to be used in middleware for rate limiting all API endpoints.
 #[allow(dead_code)]
-pub fn check_rate_limit(
-    rate_limiter: &RateLimiter,
-    ip: IpAddr,
-) -> Option<RateLimitResponse> {
+pub fn check_rate_limit(rate_limiter: &RateLimiter, ip: IpAddr) -> Option<RateLimitResponse> {
     match rate_limiter.check(ip) {
-        RateLimitResult::Allowed { remaining, reset_at } => {
+        RateLimitResult::Allowed {
+            remaining,
+            reset_at,
+        } => {
             // Request allowed - headers will be added by middleware
             let _ = (remaining, reset_at);
             None
@@ -340,10 +381,22 @@ pub fn check_rate_limit(
             Some((
                 StatusCode::TOO_MANY_REQUESTS,
                 [
-                    (header::HeaderName::from_static("x-ratelimit-limit"), "0".to_string()),
-                    (header::HeaderName::from_static("x-ratelimit-remaining"), "0".to_string()),
-                    (header::HeaderName::from_static("x-ratelimit-reset"), "0".to_string()),
-                    (header::HeaderName::from_static("retry-after"), retry_after.to_string()),
+                    (
+                        header::HeaderName::from_static("x-ratelimit-limit"),
+                        "0".to_string(),
+                    ),
+                    (
+                        header::HeaderName::from_static("x-ratelimit-remaining"),
+                        "0".to_string(),
+                    ),
+                    (
+                        header::HeaderName::from_static("x-ratelimit-reset"),
+                        "0".to_string(),
+                    ),
+                    (
+                        header::HeaderName::from_static("retry-after"),
+                        retry_after.to_string(),
+                    ),
                 ],
                 Json(error),
             ))
@@ -365,9 +418,7 @@ async fn get_auth_status(
     let authorization = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok());
-    let x_api_key = headers
-        .get("x-api-key")
-        .and_then(|v| v.to_str().ok());
+    let x_api_key = headers.get("x-api-key").and_then(|v| v.to_str().ok());
 
     let api_key = extract_api_key(authorization, x_api_key);
 
@@ -392,9 +443,9 @@ async fn get_job_history(
 ) -> Result<Json<HistoryResponse>, AppError> {
     // Get jobs from job store if persistence is enabled
     let all_jobs = if let Some(store) = &state.job_store {
-        store.list().map_err(|e| {
-            AppError::Internal(format!("Failed to get job history: {}", e))
-        })?
+        store
+            .list()
+            .map_err(|e| AppError::Internal(format!("Failed to get job history: {}", e)))?
     } else {
         // Fall back to in-memory queue
         state.queue.list()
@@ -402,7 +453,10 @@ async fn get_job_history(
 
     // Filter by status if provided
     let filtered: Vec<Job> = if let Some(status) = &query.status {
-        all_jobs.into_iter().filter(|j| &j.status == status).collect()
+        all_jobs
+            .into_iter()
+            .filter(|j| &j.status == status)
+            .collect()
     } else {
         all_jobs
     };
@@ -451,12 +505,20 @@ async fn retry_job(
     state.queue.submit(new_job);
 
     // Try to find the original input file and resubmit
-    let input_path = state.upload_dir.join(format!("{}_{}", id, job.input_filename));
+    let input_path = state
+        .upload_dir
+        .join(format!("{}_{}", id, job.input_filename));
     if input_path.exists() {
         // Copy to new job path
-        let new_input_path = state.upload_dir.join(format!("{}_{}", new_job_id, job.input_filename));
+        let new_input_path = state
+            .upload_dir
+            .join(format!("{}_{}", new_job_id, job.input_filename));
         if std::fs::copy(&input_path, &new_input_path).is_ok() {
-            if let Err(e) = state.worker_pool.submit(new_job_id, new_input_path, job.options.clone()).await {
+            if let Err(e) = state
+                .worker_pool
+                .submit(new_job_id, new_input_path, job.options.clone())
+                .await
+            {
                 state.queue.update(new_job_id, |job| {
                     job.fail(format!("Failed to start processing: {}", e));
                 });
@@ -489,10 +551,7 @@ async fn upload_and_convert(
 
         match name.as_str() {
             "file" => {
-                filename = field
-                    .file_name()
-                    .unwrap_or("upload.pdf")
-                    .to_string();
+                filename = field.file_name().unwrap_or("upload.pdf").to_string();
                 if let Ok(data) = field.bytes().await {
                     file_data = Some(data.to_vec());
                 }
@@ -521,9 +580,8 @@ async fn upload_and_convert(
 
     // Save uploaded file
     let input_path = state.upload_dir.join(format!("{}_{}", job_id, filename));
-    std::fs::write(&input_path, &file_data).map_err(|e| {
-        AppError::Internal(format!("Failed to save uploaded file: {}", e))
-    })?;
+    std::fs::write(&input_path, &file_data)
+        .map_err(|e| AppError::Internal(format!("Failed to save uploaded file: {}", e)))?;
 
     // Submit job to queue
     state.queue.submit(job);
@@ -622,12 +680,9 @@ async fn download_result(
                 Err(AppError::Internal("Output file not found".to_string()))
             }
         }
-        super::job::JobStatus::Queued | super::job::JobStatus::Processing => {
-            Err(AppError::Conflict(format!(
-                "Job {} is still {}",
-                id, job.status
-            )))
-        }
+        super::job::JobStatus::Queued | super::job::JobStatus::Processing => Err(
+            AppError::Conflict(format!("Job {} is still {}", id, job.status)),
+        ),
         super::job::JobStatus::Failed => Err(AppError::Conflict(format!(
             "Job {} failed: {}",
             id,
@@ -722,10 +777,7 @@ async fn create_batch(
 
         match name.as_str() {
             "files[]" | "files" => {
-                let filename = field
-                    .file_name()
-                    .unwrap_or("upload.pdf")
-                    .to_string();
+                let filename = field.file_name().unwrap_or("upload.pdf").to_string();
                 if let Ok(data) = field.bytes().await {
                     file_data_list.push((filename.clone(), data.to_vec()));
                     filenames.push(filename);
@@ -761,16 +813,19 @@ async fn create_batch(
 
         // Save uploaded file
         let input_path = state.upload_dir.join(format!("{}_{}", job_id, filename));
-        std::fs::write(&input_path, &data).map_err(|e| {
-            AppError::Internal(format!("Failed to save uploaded file: {}", e))
-        })?;
+        std::fs::write(&input_path, &data)
+            .map_err(|e| AppError::Internal(format!("Failed to save uploaded file: {}", e)))?;
 
         // Submit job
         state.queue.submit(job);
         batch.add_job(job_id);
 
         // Start processing
-        if let Err(e) = state.worker_pool.submit(job_id, input_path, options.clone()).await {
+        if let Err(e) = state
+            .worker_pool
+            .submit(job_id, input_path, options.clone())
+            .await
+        {
             state.queue.update(job_id, |job| {
                 job.fail(format!("Failed to start processing: {}", e));
             });
@@ -894,7 +949,9 @@ pub enum AppError {
     Internal(String),
     /// Rate limit exceeded (used by rate limiting middleware)
     #[allow(dead_code)]
-    TooManyRequests { retry_after: u64 },
+    TooManyRequests {
+        retry_after: u64,
+    },
 }
 
 impl IntoResponse for AppError {
@@ -918,7 +975,14 @@ impl IntoResponse for AppError {
             ),
         };
 
-        let mut response = (status, Json(ErrorResponse { error: message, retry_after })).into_response();
+        let mut response = (
+            status,
+            Json(ErrorResponse {
+                error: message,
+                retry_after,
+            }),
+        )
+            .into_response();
 
         if let AppError::TooManyRequests { retry_after } = self {
             if let Ok(value) = header::HeaderValue::from_str(&retry_after.to_string()) {
@@ -1244,12 +1308,8 @@ mod tests {
         let work_dir = std::env::temp_dir().join("superbook_test_auth_custom");
         let keys = vec![ApiKey::new("test-key", "Test")];
         let auth_config = AuthConfig::enabled_with_keys(keys);
-        let state = AppState::new_with_config(
-            work_dir.clone(),
-            1,
-            RateLimitConfig::default(),
-            auth_config,
-        );
+        let state =
+            AppState::new_with_config(work_dir.clone(), 1, RateLimitConfig::default(), auth_config);
         assert!(state.auth_manager.is_enabled());
         assert_eq!(state.auth_manager.key_count(), 1);
         std::fs::remove_dir_all(&work_dir).ok();

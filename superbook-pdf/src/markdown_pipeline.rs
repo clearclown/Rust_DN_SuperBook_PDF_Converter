@@ -251,7 +251,10 @@ impl MarkdownPipeline {
         let md_gen = MarkdownGenerator::new(output_dir)?;
 
         // Step 5-9: OCR + Figure Detection + Markdown Generation (per page)
-        progress.on_step_start(&format!("OCR・図検出・Markdown生成 ({}ページ)...", page_count));
+        progress.on_step_start(&format!(
+            "OCR・図検出・Markdown生成 ({}ページ)...",
+            page_count
+        ));
 
         // Setup YomiToku (graceful fallback if venv unavailable)
         let venv_path = std::env::var("SUPERBOOK_VENV")
@@ -314,12 +317,8 @@ impl MarkdownPipeline {
                 FigureDetector::classify_page(&image, &ocr_result, page_idx, &self.figure_options);
 
             // Save figure/cover/full-page images
-            let figure_images = self.save_page_images(
-                &image,
-                page_idx,
-                &classification,
-                md_gen.images_dir(),
-            )?;
+            let figure_images =
+                self.save_page_images(&image, page_idx, &classification, md_gen.images_dir())?;
             images_count += figure_images.len();
 
             // Build page content
@@ -558,10 +557,7 @@ impl MarkdownPipeline {
 
         match esrgan.upscale_batch(images, output_dir, &options, None) {
             Ok(result) => {
-                progress.on_step_complete(
-                    "超解像",
-                    &format!("{}画像", result.successful.len()),
-                );
+                progress.on_step_complete("超解像", &format!("{}画像", result.successful.len()));
                 Ok(result
                     .successful
                     .iter()
@@ -619,8 +615,8 @@ mod tests {
 
     #[test]
     fn test_markdown_pipeline_from_args() {
-        use clap::Parser;
         use crate::cli::Cli;
+        use clap::Parser;
 
         let cli = Cli::try_parse_from([
             "superbook-pdf",
@@ -637,6 +633,135 @@ mod tests {
             assert_eq!(pipeline.config.dpi, 300);
             assert!(pipeline.config.gpu);
             assert!(pipeline.config.ocr);
+        } else {
+            panic!("Expected Markdown command");
+        }
+    }
+
+    // ============ Additional Tests (Issue #41+ quality assurance) ============
+
+    #[test]
+    fn test_progress_state_duplicate_mark() {
+        let mut state = ProgressState::new(5, Path::new("test.pdf"), "test");
+        state.mark_processed(2);
+        state.mark_processed(2);
+        state.mark_processed(2);
+        assert_eq!(state.processed_pages.len(), 1);
+        assert!(state.is_processed(2));
+    }
+
+    #[test]
+    fn test_progress_state_sorted_order() {
+        let mut state = ProgressState::new(10, Path::new("test.pdf"), "test");
+        state.mark_processed(5);
+        state.mark_processed(1);
+        state.mark_processed(8);
+        state.mark_processed(3);
+        assert_eq!(state.processed_pages, vec![1, 3, 5, 8]);
+    }
+
+    #[test]
+    fn test_progress_state_boundary_pages() {
+        let mut state = ProgressState::new(100, Path::new("test.pdf"), "test");
+        state.mark_processed(0);
+        state.mark_processed(99);
+        assert!(state.is_processed(0));
+        assert!(state.is_processed(99));
+        assert!(!state.is_processed(50));
+        assert!(!state.is_processed(100)); // out of range but no panic
+    }
+
+    #[test]
+    fn test_empty_ocr_result_structure() {
+        let result = MarkdownPipeline::empty_ocr_result(Path::new("test.png"));
+        assert!(result.text_blocks.is_empty());
+        assert_eq!(result.confidence, 0.0);
+        assert_eq!(result.input_path, PathBuf::from("test.png"));
+    }
+
+    #[test]
+    fn test_markdown_pipeline_no_upscale_no_deskew() {
+        use crate::cli::Cli;
+        use clap::Parser;
+
+        let cli =
+            Cli::try_parse_from(["superbook-pdf", "markdown", "input.pdf", "--no-deskew"]).unwrap();
+
+        if let crate::cli::Commands::Markdown(args) = cli.command {
+            let pipeline = MarkdownPipeline::from_args(&args);
+            assert!(!pipeline.config.deskew);
+            assert!(!pipeline.config.upscale);
+            assert!(!pipeline.config.gpu);
+        } else {
+            panic!("Expected Markdown command");
+        }
+    }
+
+    #[test]
+    fn test_figure_options_sensitivity_zero() {
+        use crate::cli::Cli;
+        use clap::Parser;
+
+        let cli = Cli::try_parse_from([
+            "superbook-pdf",
+            "markdown",
+            "input.pdf",
+            "--figure-sensitivity",
+            "0.0",
+        ])
+        .unwrap();
+
+        if let crate::cli::Commands::Markdown(args) = cli.command {
+            let pipeline = MarkdownPipeline::from_args(&args);
+            // sensitivity=0.0 → min_area_fraction = 0.05 * (1.0 - 0.0) = 0.05
+            assert!((pipeline.figure_options.min_area_fraction - 0.05).abs() < f32::EPSILON);
+        } else {
+            panic!("Expected Markdown command");
+        }
+    }
+
+    #[test]
+    fn test_figure_options_sensitivity_one() {
+        use crate::cli::Cli;
+        use clap::Parser;
+
+        let cli = Cli::try_parse_from([
+            "superbook-pdf",
+            "markdown",
+            "input.pdf",
+            "--figure-sensitivity",
+            "1.0",
+        ])
+        .unwrap();
+
+        if let crate::cli::Commands::Markdown(args) = cli.command {
+            let pipeline = MarkdownPipeline::from_args(&args);
+            // sensitivity=1.0 → min_area_fraction = 0.05 * (1.0 - 1.0) = 0.0
+            assert!(pipeline.figure_options.min_area_fraction.abs() < f32::EPSILON);
+        } else {
+            panic!("Expected Markdown command");
+        }
+    }
+
+    #[test]
+    fn test_figure_options_sensitivity_clamped() {
+        use crate::cli::Cli;
+        use clap::Parser;
+
+        // Value > 1.0 should be clamped to 1.0
+        let cli = Cli::try_parse_from([
+            "superbook-pdf",
+            "markdown",
+            "input.pdf",
+            "--figure-sensitivity",
+            "5.0",
+        ])
+        .unwrap();
+
+        if let crate::cli::Commands::Markdown(args) = cli.command {
+            let pipeline = MarkdownPipeline::from_args(&args);
+            // clamped to 1.0 → min_area_fraction = 0.0
+            assert!(pipeline.figure_options.min_area_fraction.abs() < f32::EPSILON);
         } else {
             panic!("Expected Markdown command");
         }

@@ -328,7 +328,10 @@ impl FigureDetector {
     /// Detect the actual content bounding box of an image by finding non-white pixels.
     /// Returns `(x, y, width, height)` of the content area, or `None` if the image is blank.
     /// `threshold` controls what counts as "white" (default ~240).
-    pub fn find_content_bounds(image: &DynamicImage, threshold: u8) -> Option<(u32, u32, u32, u32)> {
+    pub fn find_content_bounds(
+        image: &DynamicImage,
+        threshold: u8,
+    ) -> Option<(u32, u32, u32, u32)> {
         let gray = image.to_luma8();
         let (img_w, img_h) = (gray.width(), gray.height());
 
@@ -518,5 +521,223 @@ mod tests {
         assert!(cropped.height() < 320);
         assert!(cropped.width() >= 300);
         assert!(cropped.height() >= 300);
+    }
+
+    // ============ Additional Tests (Issue #41+ quality assurance) ============
+
+    #[test]
+    fn test_classify_mixed_page_with_figures() {
+        use image::{Rgb, RgbImage};
+        // Create an image with dark content in a non-text region
+        let mut raw = RgbImage::from_pixel(1000, 1500, Rgb([255, 255, 255]));
+        // Draw a "figure" area (400x400 dark block) — enough to be > 2% of 1000*1500
+        for y in 800..1200 {
+            for x in 200..600 {
+                raw.put_pixel(x, y, Rgb([30, 30, 30]));
+            }
+        }
+        let img = DynamicImage::ImageRgb8(raw);
+
+        // Add text blocks covering ~20% of the page (enough to not be fullpage, not textonly)
+        let blocks = vec![TextBlock {
+            text: "テスト文章".into(),
+            bbox: (50, 50, 900, 250), // 900*250 = 225000 / 1500000 = 15%
+            confidence: 0.95,
+            direction: TextDirection::Horizontal,
+            font_size: Some(12.0),
+        }];
+        let ocr = make_ocr_result(blocks);
+        let opts = FigureDetectOptions::default();
+
+        let result = FigureDetector::classify_page(&img, &ocr, 1, &opts);
+        match result {
+            PageClassification::Mixed { figures } => {
+                assert!(!figures.is_empty(), "Should detect at least one figure");
+            }
+            PageClassification::TextOnly => {
+                // Acceptable if figure detection didn't find contiguous area
+            }
+            other => panic!("Expected Mixed or TextOnly, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_detect_figures_small_content_filtered() {
+        // Small content should be filtered by min_area_fraction
+        use image::{Rgb, RgbImage};
+        let mut raw = RgbImage::from_pixel(1000, 1500, Rgb([255, 255, 255]));
+        // Tiny dark dot (5x5 = 25 pixels, far below 2% of 1.5M)
+        for y in 500..505 {
+            for x in 500..505 {
+                raw.put_pixel(x, y, Rgb([0, 0, 0]));
+            }
+        }
+        let img = DynamicImage::ImageRgb8(raw);
+
+        let blocks = vec![TextBlock {
+            text: "テスト".into(),
+            bbox: (50, 50, 600, 200),
+            confidence: 0.9,
+            direction: TextDirection::Horizontal,
+            font_size: Some(12.0),
+        }];
+        let ocr = make_ocr_result(blocks);
+        let opts = FigureDetectOptions::default();
+
+        let result = FigureDetector::classify_page(&img, &ocr, 1, &opts);
+        // Small dot should be filtered out → TextOnly
+        assert!(matches!(result, PageClassification::TextOnly));
+    }
+
+    #[test]
+    fn test_merge_overlapping_regions() {
+        let a = FigureRegion {
+            bbox: (0, 0, 100, 100),
+            area: 10000,
+            region_type: RegionType::Figure,
+        };
+        let b = FigureRegion {
+            bbox: (80, 80, 100, 100),
+            area: 10000,
+            region_type: RegionType::Figure,
+        };
+        let mut figures = vec![a, b];
+        FigureDetector::merge_overlapping(&mut figures);
+        // Should merge into one
+        assert_eq!(figures.len(), 1);
+        assert_eq!(figures[0].bbox, (0, 0, 180, 180));
+    }
+
+    #[test]
+    fn test_merge_non_overlapping_regions() {
+        let a = FigureRegion {
+            bbox: (0, 0, 100, 100),
+            area: 10000,
+            region_type: RegionType::Figure,
+        };
+        let b = FigureRegion {
+            bbox: (500, 500, 100, 100),
+            area: 10000,
+            region_type: RegionType::Figure,
+        };
+        let mut figures = vec![a, b];
+        FigureDetector::merge_overlapping(&mut figures);
+        // Should remain separate
+        assert_eq!(figures.len(), 2);
+    }
+
+    #[test]
+    fn test_calculate_text_area_clamped() {
+        // Text block extending beyond image bounds should be clamped
+        let blocks = vec![TextBlock {
+            text: "テスト".into(),
+            bbox: (900, 900, 200, 200), // extends to (1100, 1100) but image is 1000x1000
+            confidence: 0.9,
+            direction: TextDirection::Horizontal,
+            font_size: Some(12.0),
+        }];
+        let area = FigureDetector::calculate_text_area(&blocks, 1000, 1000);
+        // Clamped: w = min(200, 1000-900) = 100, h = min(200, 1000-900) = 100
+        assert_eq!(area, 100 * 100);
+    }
+
+    #[test]
+    fn test_calculate_text_area_empty() {
+        let area = FigureDetector::calculate_text_area(&[], 1000, 1000);
+        assert_eq!(area, 0);
+    }
+
+    #[test]
+    fn test_classify_page_zero_area() {
+        // Zero-dimension image should return TextOnly (no panic)
+        let img = DynamicImage::new_rgb8(0, 0);
+        let ocr = make_ocr_result(vec![]);
+        let opts = FigureDetectOptions::default();
+        let result = FigureDetector::classify_page(&img, &ocr, 0, &opts);
+        assert!(matches!(result, PageClassification::TextOnly));
+    }
+
+    #[test]
+    fn test_crop_to_content_edge_content() {
+        use image::{Rgb, RgbImage};
+        // Content at image edges
+        let mut raw = RgbImage::from_pixel(100, 100, Rgb([255, 255, 255]));
+        // Draw content at top-left corner
+        for y in 0..5 {
+            for x in 0..5 {
+                raw.put_pixel(x, y, Rgb([0, 0, 0]));
+            }
+        }
+        let img = DynamicImage::ImageRgb8(raw);
+        let cropped = FigureDetector::crop_to_content(&img, 240);
+        // Should not panic, and result should be smaller than original
+        assert!(cropped.width() <= 100);
+        assert!(cropped.height() <= 100);
+    }
+
+    #[test]
+    fn test_crop_to_content_full_black() {
+        use image::{Rgb, RgbImage};
+        let raw = RgbImage::from_pixel(100, 100, Rgb([0, 0, 0]));
+        let img = DynamicImage::ImageRgb8(raw);
+        let cropped = FigureDetector::crop_to_content(&img, 240);
+        // Full content — should return roughly the same size
+        assert_eq!(cropped.width(), 100);
+        assert_eq!(cropped.height(), 100);
+    }
+
+    #[test]
+    fn test_find_content_bounds_single_pixel() {
+        use image::{Rgb, RgbImage};
+        let mut raw = RgbImage::from_pixel(200, 200, Rgb([255, 255, 255]));
+        raw.put_pixel(99, 99, Rgb([0, 0, 0]));
+        let img = DynamicImage::ImageRgb8(raw);
+        let bounds = FigureDetector::find_content_bounds(&img, 240).unwrap();
+        assert_eq!(bounds, (99, 99, 1, 1));
+    }
+
+    #[test]
+    fn test_find_content_bounds_threshold_boundary() {
+        use image::{Rgb, RgbImage};
+
+        // Pixel at exactly the threshold — should NOT be detected as content
+        let mut raw1 = RgbImage::from_pixel(100, 100, Rgb([255, 255, 255]));
+        raw1.put_pixel(50, 50, Rgb([240, 240, 240]));
+        let img1 = DynamicImage::ImageRgb8(raw1);
+        assert!(FigureDetector::find_content_bounds(&img1, 240).is_none());
+
+        // Pixel just below threshold — should be detected
+        let mut raw2 = RgbImage::from_pixel(100, 100, Rgb([255, 255, 255]));
+        raw2.put_pixel(50, 50, Rgb([239, 239, 239]));
+        let img2 = DynamicImage::ImageRgb8(raw2);
+        let bounds = FigureDetector::find_content_bounds(&img2, 240).unwrap();
+        assert_eq!(bounds, (50, 50, 1, 1));
+    }
+
+    #[test]
+    fn test_detect_figures_extreme_aspect_ratio() {
+        use image::{Rgb, RgbImage};
+        // Create a very thin horizontal line (extreme aspect ratio)
+        let mut raw = RgbImage::from_pixel(1000, 1500, Rgb([255, 255, 255]));
+        // Thin line: 500x2 pixels — aspect ratio = 250, exceeds max 10.0
+        for x in 200..700 {
+            raw.put_pixel(x, 750, Rgb([0, 0, 0]));
+            raw.put_pixel(x, 751, Rgb([0, 0, 0]));
+        }
+        let img = DynamicImage::ImageRgb8(raw);
+
+        let blocks = vec![TextBlock {
+            text: "テスト".into(),
+            bbox: (50, 50, 400, 200),
+            confidence: 0.9,
+            direction: TextDirection::Horizontal,
+            font_size: Some(12.0),
+        }];
+        let ocr = make_ocr_result(blocks);
+        let opts = FigureDetectOptions::default();
+
+        let result = FigureDetector::classify_page(&img, &ocr, 1, &opts);
+        // Extreme aspect ratio line should be filtered — likely TextOnly
+        assert!(matches!(result, PageClassification::TextOnly));
     }
 }

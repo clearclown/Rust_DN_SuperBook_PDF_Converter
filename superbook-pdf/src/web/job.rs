@@ -279,7 +279,8 @@ impl JobQueue {
             if job.is_terminal() {
                 if let Some(completed_at) = job.completed_at {
                     let age = now.signed_duration_since(completed_at);
-                    return age < chrono::Duration::from_std(max_age).unwrap_or(chrono::TimeDelta::MAX);
+                    return age
+                        < chrono::Duration::from_std(max_age).unwrap_or(chrono::TimeDelta::MAX);
                 }
             }
             true

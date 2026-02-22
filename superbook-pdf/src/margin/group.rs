@@ -275,10 +275,22 @@ impl GroupCropAnalyzer {
             };
 
             // Center the expansion for odd region
-            Self::expand_region_centered(&mut odd_region, final_width, final_height, max_width, max_height);
+            Self::expand_region_centered(
+                &mut odd_region,
+                final_width,
+                final_height,
+                max_width,
+                max_height,
+            );
 
             // Center the expansion for even region
-            Self::expand_region_centered(&mut even_region, final_width, final_height, max_width, max_height);
+            Self::expand_region_centered(
+                &mut even_region,
+                final_width,
+                final_height,
+                max_width,
+                max_height,
+            );
         }
 
         UnifiedCropRegions {
@@ -708,10 +720,42 @@ mod tests {
     fn test_tc_margin_001_uniform_margins_detected() {
         // Create pages with identical margins (uniform)
         let boxes = vec![
-            PageBoundingBox::new(1, ContentRect { x: 100, y: 100, width: 800, height: 1000 }),
-            PageBoundingBox::new(2, ContentRect { x: 100, y: 100, width: 800, height: 1000 }),
-            PageBoundingBox::new(3, ContentRect { x: 100, y: 100, width: 800, height: 1000 }),
-            PageBoundingBox::new(4, ContentRect { x: 100, y: 100, width: 800, height: 1000 }),
+            PageBoundingBox::new(
+                1,
+                ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 800,
+                    height: 1000,
+                },
+            ),
+            PageBoundingBox::new(
+                2,
+                ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 800,
+                    height: 1000,
+                },
+            ),
+            PageBoundingBox::new(
+                3,
+                ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 800,
+                    height: 1000,
+                },
+            ),
+            PageBoundingBox::new(
+                4,
+                ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 800,
+                    height: 1000,
+                },
+            ),
         ];
 
         let result = GroupCropAnalyzer::decide_group_crop_region(&boxes);
@@ -730,10 +774,42 @@ mod tests {
     fn test_tc_margin_002_nonuniform_margins_unified() {
         // Create pages with varying margins
         let boxes = vec![
-            PageBoundingBox::new(1, ContentRect { x: 100, y: 90, width: 800, height: 1000 }),
-            PageBoundingBox::new(2, ContentRect { x: 110, y: 100, width: 790, height: 990 }),
-            PageBoundingBox::new(3, ContentRect { x: 95, y: 95, width: 805, height: 1005 }),
-            PageBoundingBox::new(4, ContentRect { x: 105, y: 105, width: 795, height: 995 }),
+            PageBoundingBox::new(
+                1,
+                ContentRect {
+                    x: 100,
+                    y: 90,
+                    width: 800,
+                    height: 1000,
+                },
+            ),
+            PageBoundingBox::new(
+                2,
+                ContentRect {
+                    x: 110,
+                    y: 100,
+                    width: 790,
+                    height: 990,
+                },
+            ),
+            PageBoundingBox::new(
+                3,
+                ContentRect {
+                    x: 95,
+                    y: 95,
+                    width: 805,
+                    height: 1005,
+                },
+            ),
+            PageBoundingBox::new(
+                4,
+                ContentRect {
+                    x: 105,
+                    y: 105,
+                    width: 795,
+                    height: 995,
+                },
+            ),
         ];
 
         let result = GroupCropAnalyzer::decide_group_crop_region(&boxes);
@@ -750,8 +826,24 @@ mod tests {
     fn test_tc_margin_003_no_margins() {
         // Content fills entire page (no margins)
         let boxes = vec![
-            PageBoundingBox::new(1, ContentRect { x: 0, y: 0, width: 1000, height: 1200 }),
-            PageBoundingBox::new(2, ContentRect { x: 0, y: 0, width: 1000, height: 1200 }),
+            PageBoundingBox::new(
+                1,
+                ContentRect {
+                    x: 0,
+                    y: 0,
+                    width: 1000,
+                    height: 1200,
+                },
+            ),
+            PageBoundingBox::new(
+                2,
+                ContentRect {
+                    x: 0,
+                    y: 0,
+                    width: 1000,
+                    height: 1200,
+                },
+            ),
         ];
 
         let result = GroupCropAnalyzer::decide_group_crop_region(&boxes);
@@ -766,12 +858,52 @@ mod tests {
     fn test_tc_margin_004_outlier_exclusion_tukey() {
         // Create pages with one outlier
         let boxes = vec![
-            PageBoundingBox::new(1, ContentRect { x: 100, y: 100, width: 800, height: 1000 }),
-            PageBoundingBox::new(2, ContentRect { x: 102, y: 98, width: 798, height: 1002 }),
-            PageBoundingBox::new(3, ContentRect { x: 101, y: 101, width: 799, height: 999 }),
-            PageBoundingBox::new(4, ContentRect { x: 99, y: 99, width: 801, height: 1001 }),
+            PageBoundingBox::new(
+                1,
+                ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 800,
+                    height: 1000,
+                },
+            ),
+            PageBoundingBox::new(
+                2,
+                ContentRect {
+                    x: 102,
+                    y: 98,
+                    width: 798,
+                    height: 1002,
+                },
+            ),
+            PageBoundingBox::new(
+                3,
+                ContentRect {
+                    x: 101,
+                    y: 101,
+                    width: 799,
+                    height: 999,
+                },
+            ),
+            PageBoundingBox::new(
+                4,
+                ContentRect {
+                    x: 99,
+                    y: 99,
+                    width: 801,
+                    height: 1001,
+                },
+            ),
             // Outlier page with very different margins
-            PageBoundingBox::new(5, ContentRect { x: 300, y: 300, width: 400, height: 600 }),
+            PageBoundingBox::new(
+                5,
+                ContentRect {
+                    x: 300,
+                    y: 300,
+                    width: 400,
+                    height: 600,
+                },
+            ),
         ];
 
         let result = GroupCropAnalyzer::decide_group_crop_region(&boxes);
@@ -789,10 +921,42 @@ mod tests {
     fn test_tc_margin_005_odd_even_separate_regions() {
         // Odd pages have different margins than even pages (typical for books)
         let boxes = vec![
-            PageBoundingBox::new(1, ContentRect { x: 120, y: 100, width: 780, height: 1000 }), // Odd
-            PageBoundingBox::new(2, ContentRect { x: 100, y: 100, width: 780, height: 1000 }), // Even
-            PageBoundingBox::new(3, ContentRect { x: 122, y: 102, width: 778, height: 998 }), // Odd
-            PageBoundingBox::new(4, ContentRect { x: 98, y: 98, width: 782, height: 1002 }),  // Even
+            PageBoundingBox::new(
+                1,
+                ContentRect {
+                    x: 120,
+                    y: 100,
+                    width: 780,
+                    height: 1000,
+                },
+            ), // Odd
+            PageBoundingBox::new(
+                2,
+                ContentRect {
+                    x: 100,
+                    y: 100,
+                    width: 780,
+                    height: 1000,
+                },
+            ), // Even
+            PageBoundingBox::new(
+                3,
+                ContentRect {
+                    x: 122,
+                    y: 102,
+                    width: 778,
+                    height: 998,
+                },
+            ), // Odd
+            PageBoundingBox::new(
+                4,
+                ContentRect {
+                    x: 98,
+                    y: 98,
+                    width: 782,
+                    height: 1002,
+                },
+            ), // Even
         ];
 
         let result = GroupCropAnalyzer::unify_odd_even_regions(&boxes);

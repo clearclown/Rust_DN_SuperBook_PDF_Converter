@@ -7,7 +7,7 @@ use std::fmt::Write as FmtWrite;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-use crate::figure_detect::{PageClassification, FigureRegion};
+use crate::figure_detect::{FigureRegion, PageClassification};
 use crate::yomitoku::{OcrResult, TextBlock, TextDirection};
 
 /// Error type for Markdown generation
@@ -37,9 +37,7 @@ pub enum ContentElement {
         caption: Option<String>,
     },
     /// Full-page image (cover or illustration)
-    FullPageImage {
-        image_path: PathBuf,
-    },
+    FullPageImage { image_path: PathBuf },
     /// Page break separator
     PageBreak,
 }
@@ -93,7 +91,10 @@ impl MarkdownGenerator {
                         }
                     }
                 }
-                ContentElement::Figure { image_path, caption } => {
+                ContentElement::Figure {
+                    image_path,
+                    caption,
+                } => {
                     let rel_path = self.relative_image_path(image_path);
                     match caption {
                         Some(cap) => writeln!(md, "![{}]({})", cap, rel_path).ok(),
@@ -122,7 +123,9 @@ impl MarkdownGenerator {
         page_index: usize,
         content: &str,
     ) -> Result<PathBuf, MarkdownGenError> {
-        let page_path = self.pages_dir.join(format!("page_{:03}.md", page_index + 1));
+        let page_path = self
+            .pages_dir
+            .join(format!("page_{:03}.md", page_index + 1));
         std::fs::write(&page_path, content)?;
         Ok(page_path)
     }
@@ -140,22 +143,26 @@ impl MarkdownGenerator {
         match classification {
             PageClassification::Cover => {
                 // Look for a saved cover image
-                let cover_path = self.images_dir.join(format!("cover_{:03}.png", page_index + 1));
+                let cover_path = self
+                    .images_dir
+                    .join(format!("cover_{:03}.png", page_index + 1));
                 elements.push(ContentElement::FullPageImage {
                     image_path: cover_path,
                 });
             }
             PageClassification::FullPageImage => {
-                let img_path = self.images_dir.join(format!(
-                    "page_{:03}_full.png",
-                    page_index + 1
-                ));
+                let img_path = self
+                    .images_dir
+                    .join(format!("page_{:03}_full.png", page_index + 1));
                 elements.push(ContentElement::FullPageImage {
                     image_path: img_path,
                 });
             }
             PageClassification::TextOnly => {
-                let text = Self::sort_and_join_text_blocks(&ocr_result.text_blocks, &ocr_result.text_direction);
+                let text = Self::sort_and_join_text_blocks(
+                    &ocr_result.text_blocks,
+                    &ocr_result.text_direction,
+                );
                 if !text.is_empty() {
                     elements.push(ContentElement::Text {
                         content: text,
@@ -239,8 +246,14 @@ impl MarkdownGenerator {
     }
 
     /// Merge all page markdowns into a single output file
-    pub fn merge_pages(&self, title: &str, total_pages: usize) -> Result<PathBuf, MarkdownGenError> {
-        let output_path = self.output_dir.join(format!("{}.md", sanitize_filename(title)));
+    pub fn merge_pages(
+        &self,
+        title: &str,
+        total_pages: usize,
+    ) -> Result<PathBuf, MarkdownGenError> {
+        let output_path = self
+            .output_dir
+            .join(format!("{}.md", sanitize_filename(title)));
         let mut merged = String::new();
 
         // Title header
@@ -449,8 +462,10 @@ mod tests {
         let tmpdir = tempfile::tempdir().unwrap();
         let gen = MarkdownGenerator::new(tmpdir.path()).unwrap();
 
-        gen.save_page_markdown(0, "Page 1 content\n\n---\n\n").unwrap();
-        gen.save_page_markdown(1, "Page 2 content\n\n---\n\n").unwrap();
+        gen.save_page_markdown(0, "Page 1 content\n\n---\n\n")
+            .unwrap();
+        gen.save_page_markdown(1, "Page 2 content\n\n---\n\n")
+            .unwrap();
 
         let merged_path = gen.merge_pages("テストブック", 2).unwrap();
         assert!(merged_path.exists());
@@ -459,5 +474,298 @@ mod tests {
         assert!(content.contains("# テストブック"));
         assert!(content.contains("Page 1 content"));
         assert!(content.contains("Page 2 content"));
+    }
+
+    // ============ Additional Tests (Issue #41+ quality assurance) ============
+
+    #[test]
+    fn test_build_page_content_cover() {
+        use crate::figure_detect::PageClassification;
+        use std::time::Duration;
+
+        let tmpdir = tempfile::tempdir().unwrap();
+        let gen = MarkdownGenerator::new(tmpdir.path()).unwrap();
+
+        let ocr = OcrResult {
+            input_path: "test.png".into(),
+            text_blocks: vec![],
+            confidence: 0.0,
+            processing_time: Duration::from_millis(10),
+            text_direction: TextDirection::Vertical,
+        };
+
+        let content = gen.build_page_content(0, &ocr, &PageClassification::Cover, &[]);
+        assert!(!content.elements.is_empty());
+        assert!(matches!(
+            content.elements[0],
+            ContentElement::FullPageImage { .. }
+        ));
+        // Last element should be PageBreak
+        assert!(matches!(
+            content.elements.last().unwrap(),
+            ContentElement::PageBreak
+        ));
+    }
+
+    #[test]
+    fn test_build_page_content_fullpage_image() {
+        use crate::figure_detect::PageClassification;
+        use std::time::Duration;
+
+        let tmpdir = tempfile::tempdir().unwrap();
+        let gen = MarkdownGenerator::new(tmpdir.path()).unwrap();
+
+        let ocr = OcrResult {
+            input_path: "test.png".into(),
+            text_blocks: vec![],
+            confidence: 0.0,
+            processing_time: Duration::from_millis(10),
+            text_direction: TextDirection::Horizontal,
+        };
+
+        let content = gen.build_page_content(5, &ocr, &PageClassification::FullPageImage, &[]);
+        assert!(matches!(
+            content.elements[0],
+            ContentElement::FullPageImage { .. }
+        ));
+        if let ContentElement::FullPageImage { image_path } = &content.elements[0] {
+            assert!(image_path.to_string_lossy().contains("page_006_full.png"));
+        }
+    }
+
+    #[test]
+    fn test_build_page_content_text_only() {
+        use crate::figure_detect::PageClassification;
+        use std::time::Duration;
+
+        let tmpdir = tempfile::tempdir().unwrap();
+        let gen = MarkdownGenerator::new(tmpdir.path()).unwrap();
+
+        let blocks = vec![
+            TextBlock {
+                text: "最初の段落".into(),
+                bbox: (0, 0, 200, 50),
+                confidence: 0.9,
+                direction: TextDirection::Horizontal,
+                font_size: Some(12.0),
+            },
+            TextBlock {
+                text: "二番目の段落".into(),
+                bbox: (0, 100, 200, 50),
+                confidence: 0.9,
+                direction: TextDirection::Horizontal,
+                font_size: Some(12.0),
+            },
+        ];
+
+        let ocr = OcrResult {
+            input_path: "test.png".into(),
+            text_blocks: blocks,
+            confidence: 0.9,
+            processing_time: Duration::from_millis(10),
+            text_direction: TextDirection::Horizontal,
+        };
+
+        let content = gen.build_page_content(0, &ocr, &PageClassification::TextOnly, &[]);
+        // Should have Text + PageBreak
+        assert!(content.elements.len() >= 2);
+        if let ContentElement::Text { content: text, .. } = &content.elements[0] {
+            assert!(text.contains("最初の段落"));
+            assert!(text.contains("二番目の段落"));
+        } else {
+            panic!("Expected Text element");
+        }
+    }
+
+    #[test]
+    fn test_build_page_content_mixed_with_figures() {
+        use crate::figure_detect::{FigureRegion, PageClassification, RegionType};
+        use std::time::Duration;
+
+        let tmpdir = tempfile::tempdir().unwrap();
+        let gen = MarkdownGenerator::new(tmpdir.path()).unwrap();
+
+        let blocks = vec![
+            TextBlock {
+                text: "文章の前".into(),
+                bbox: (0, 0, 200, 50),
+                confidence: 0.9,
+                direction: TextDirection::Horizontal,
+                font_size: Some(12.0),
+            },
+            TextBlock {
+                text: "文章の後".into(),
+                bbox: (0, 400, 200, 50),
+                confidence: 0.9,
+                direction: TextDirection::Horizontal,
+                font_size: Some(12.0),
+            },
+        ];
+
+        let ocr = OcrResult {
+            input_path: "test.png".into(),
+            text_blocks: blocks,
+            confidence: 0.9,
+            processing_time: Duration::from_millis(10),
+            text_direction: TextDirection::Horizontal,
+        };
+
+        let fig = FigureRegion {
+            bbox: (0, 200, 200, 100),
+            area: 20000,
+            region_type: RegionType::Figure,
+        };
+        let fig_path = tmpdir.path().join("images").join("figure_001.png");
+        let figures = vec![fig.clone()];
+        let figure_images = vec![(fig, fig_path)];
+
+        let content = gen.build_page_content(
+            0,
+            &ocr,
+            &PageClassification::Mixed { figures },
+            &figure_images,
+        );
+
+        // Should have: Text (before figure), Figure, Text (after figure), PageBreak
+        let has_figure = content
+            .elements
+            .iter()
+            .any(|e| matches!(e, ContentElement::Figure { .. }));
+        let has_text = content
+            .elements
+            .iter()
+            .any(|e| matches!(e, ContentElement::Text { .. }));
+        assert!(has_figure);
+        assert!(has_text);
+    }
+
+    #[test]
+    fn test_relative_image_path_absolute() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let gen = MarkdownGenerator::new(tmpdir.path()).unwrap();
+
+        let abs_path = tmpdir.path().join("images").join("test.png");
+        let rel = gen.relative_image_path(&abs_path);
+        assert_eq!(rel, "images/test.png");
+    }
+
+    #[test]
+    fn test_relative_image_path_outside_output() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let gen = MarkdownGenerator::new(tmpdir.path()).unwrap();
+
+        // Path outside the output directory — should return as-is
+        let outside_path = PathBuf::from("/some/other/path/image.png");
+        let rel = gen.relative_image_path(&outside_path);
+        assert_eq!(rel, "/some/other/path/image.png");
+    }
+
+    #[test]
+    fn test_sanitize_filename_japanese() {
+        assert_eq!(sanitize_filename("日本語のタイトル"), "日本語のタイトル");
+        assert_eq!(sanitize_filename("テスト/ブック"), "テスト_ブック");
+    }
+
+    #[test]
+    fn test_sanitize_filename_all_special_chars() {
+        let input = r#"a/b\c:d*e?f"g<h>i|j"#;
+        let result = sanitize_filename(input);
+        assert!(!result.contains('/'));
+        assert!(!result.contains('\\'));
+        assert!(!result.contains(':'));
+        assert!(!result.contains('*'));
+        assert!(!result.contains('?'));
+        assert!(!result.contains('"'));
+        assert!(!result.contains('<'));
+        assert!(!result.contains('>'));
+        assert!(!result.contains('|'));
+        assert_eq!(result, "a_b_c_d_e_f_g_h_i_j");
+    }
+
+    #[test]
+    fn test_sort_text_blocks_same_position() {
+        // Blocks at the same Y should be sorted by X (for horizontal)
+        let blocks = vec![
+            TextBlock {
+                text: "右".into(),
+                bbox: (300, 100, 50, 50),
+                confidence: 0.9,
+                direction: TextDirection::Horizontal,
+                font_size: Some(12.0),
+            },
+            TextBlock {
+                text: "左".into(),
+                bbox: (100, 100, 50, 50),
+                confidence: 0.9,
+                direction: TextDirection::Horizontal,
+                font_size: Some(12.0),
+            },
+        ];
+
+        let sorted = MarkdownGenerator::sort_text_blocks(&blocks, &TextDirection::Horizontal);
+        assert_eq!(sorted[0].text, "左");
+        assert_eq!(sorted[1].text, "右");
+    }
+
+    #[test]
+    fn test_sort_text_blocks_mixed_direction() {
+        // Mixed direction should use horizontal sorting (top-to-bottom, left-to-right)
+        let blocks = vec![
+            TextBlock {
+                text: "下".into(),
+                bbox: (0, 500, 100, 50),
+                confidence: 0.9,
+                direction: TextDirection::Mixed,
+                font_size: Some(12.0),
+            },
+            TextBlock {
+                text: "上".into(),
+                bbox: (0, 100, 100, 50),
+                confidence: 0.9,
+                direction: TextDirection::Mixed,
+                font_size: Some(12.0),
+            },
+        ];
+
+        let sorted = MarkdownGenerator::sort_text_blocks(&blocks, &TextDirection::Mixed);
+        assert_eq!(sorted[0].text, "上");
+        assert_eq!(sorted[1].text, "下");
+    }
+
+    #[test]
+    fn test_generate_page_markdown_full_page_image() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let gen = MarkdownGenerator::new(tmpdir.path()).unwrap();
+        let img_path = tmpdir.path().join("images").join("page_001_full.png");
+
+        let content = PageContent {
+            page_index: 0,
+            elements: vec![
+                ContentElement::FullPageImage {
+                    image_path: img_path,
+                },
+                ContentElement::PageBreak,
+            ],
+        };
+
+        let md = gen.generate_page_markdown(&content).unwrap();
+        assert!(md.contains("![](images/page_001_full.png)"));
+        assert!(md.contains("---"));
+    }
+
+    #[test]
+    fn test_merge_pages_missing_page() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let gen = MarkdownGenerator::new(tmpdir.path()).unwrap();
+
+        // Save only page 0 and 2, skip page 1
+        gen.save_page_markdown(0, "Page 1 content\n\n").unwrap();
+        gen.save_page_markdown(2, "Page 3 content\n\n").unwrap();
+
+        let merged_path = gen.merge_pages("テスト", 3).unwrap();
+        let content = std::fs::read_to_string(&merged_path).unwrap();
+        assert!(content.contains("Page 1 content"));
+        assert!(content.contains("Page 3 content"));
+        // Page 2 was skipped — no error
     }
 }

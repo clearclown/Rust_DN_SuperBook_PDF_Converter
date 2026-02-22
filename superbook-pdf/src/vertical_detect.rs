@@ -192,10 +192,18 @@ pub fn detect_book_vertical_writing(
 
     let vertical_probability = if page_results.len() >= 10 {
         // Use average of all pages
-        page_results.iter().map(|r| r.vertical_probability).sum::<f64>() / page_results.len() as f64
+        page_results
+            .iter()
+            .map(|r| r.vertical_probability)
+            .sum::<f64>()
+            / page_results.len() as f64
     } else {
         // For small books, use simple average
-        page_results.iter().map(|r| r.vertical_probability).sum::<f64>() / page_results.len() as f64
+        page_results
+            .iter()
+            .map(|r| r.vertical_probability)
+            .sum::<f64>()
+            / page_results.len() as f64
     };
 
     let is_vertical = vertical_probability >= options.vertical_threshold;
@@ -336,8 +344,7 @@ fn compute_linear_score(image: &GrayImage, options: &VerticalDetectOptions) -> f
 
         // 3. Combine three metrics into block score
         // Weights: variation=0.4, zeroLine=0.2, separation=0.4
-        let score =
-            (variation_coefficient * 0.4) + (zero_ratio * 0.2) + (separation_ratio * 0.4);
+        let score = (variation_coefficient * 0.4) + (zero_ratio * 0.2) + (separation_ratio * 0.4);
 
         block_scores.push(score.clamp(0.0, 1.0));
     }

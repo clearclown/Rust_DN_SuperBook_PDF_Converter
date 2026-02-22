@@ -4,11 +4,11 @@
 
 #![cfg(feature = "web")]
 
+use std::path::PathBuf;
 use superbook_pdf::{
     BatchJob, BatchProgress, BatchQueue, BatchStatus, Job, JobQueue, JobStatus, Priority,
     ServerConfig, WebConvertOptions, WebProgress,
 };
-use std::path::PathBuf;
 
 #[cfg(test)]
 mod tests {
@@ -60,7 +60,9 @@ mod tests {
         assert_eq!(job.status, JobStatus::Processing);
 
         // Transition to completed
-        queue.update(job_id, |j: &mut Job| j.complete(PathBuf::from("/output/test.pdf")));
+        queue.update(job_id, |j: &mut Job| {
+            j.complete(PathBuf::from("/output/test.pdf"))
+        });
         let job = queue.get(job_id).unwrap();
         assert_eq!(job.status, JobStatus::Completed);
     }
@@ -121,7 +123,8 @@ mod tests {
     // TC-WEB-008: Convert options JSON deserialization
     #[tokio::test]
     async fn test_convert_options_json() {
-        let json = r#"{"dpi": 600, "deskew": false, "upscale": true, "ocr": true, "advanced": true}"#;
+        let json =
+            r#"{"dpi": 600, "deskew": false, "upscale": true, "ocr": true, "advanced": true}"#;
         let options: WebConvertOptions = serde_json::from_str(json).unwrap();
 
         assert_eq!(options.dpi, 600);
@@ -159,7 +162,9 @@ mod tests {
         queue.submit(job);
 
         // Mark as failed
-        queue.update(job_id, |j: &mut Job| j.fail("Test error message".to_string()));
+        queue.update(job_id, |j: &mut Job| {
+            j.fail("Test error message".to_string())
+        });
 
         let job = queue.get(job_id).unwrap();
         assert_eq!(job.status, JobStatus::Failed);
@@ -182,7 +187,9 @@ mod tests {
     // TC-WEB-012: Socket address parsing
     #[tokio::test]
     async fn test_socket_addr_parsing() {
-        let config = ServerConfig::default().with_port(8080).with_bind("127.0.0.1");
+        let config = ServerConfig::default()
+            .with_port(8080)
+            .with_bind("127.0.0.1");
 
         let addr = config.socket_addr().unwrap();
         assert_eq!(addr.port(), 8080);
@@ -281,7 +288,10 @@ mod tests {
 
         // Create jobs for batch
         let filenames = vec!["doc1.pdf", "doc2.pdf", "doc3.pdf"];
-        batch_queue.create_jobs(&mut batch, &filenames.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        batch_queue.create_jobs(
+            &mut batch,
+            &filenames.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+        );
 
         assert_eq!(batch.job_count(), 3);
 

@@ -106,10 +106,7 @@ impl Default for AuthConfig {
         Self {
             enabled: false,
             api_keys: vec![],
-            public_endpoints: vec![
-                "/api/health".to_string(),
-                "/".to_string(),
-            ],
+            public_endpoints: vec!["/api/health".to_string(), "/".to_string()],
         }
     }
 }
@@ -120,10 +117,7 @@ impl AuthConfig {
         Self {
             enabled: true,
             api_keys,
-            public_endpoints: vec![
-                "/api/health".to_string(),
-                "/".to_string(),
-            ],
+            public_endpoints: vec!["/api/health".to_string(), "/".to_string()],
         }
     }
 
@@ -154,7 +148,10 @@ pub enum AuthResult {
 impl AuthResult {
     /// Check if authentication succeeded
     pub fn is_authenticated(&self) -> bool {
-        matches!(self, AuthResult::Authenticated { .. } | AuthResult::Disabled)
+        matches!(
+            self,
+            AuthResult::Authenticated { .. } | AuthResult::Disabled
+        )
     }
 
     /// Get the key name if authenticated
@@ -579,10 +576,7 @@ mod tests {
 
     #[test]
     fn test_auth_config_enabled_with_keys() {
-        let keys = vec![
-            ApiKey::new("key1", "Key 1"),
-            ApiKey::new("key2", "Key 2"),
-        ];
+        let keys = vec![ApiKey::new("key1", "Key 1"), ApiKey::new("key2", "Key 2")];
         let config = AuthConfig::enabled_with_keys(keys);
         assert!(config.enabled);
         assert_eq!(config.api_keys.len(), 2);

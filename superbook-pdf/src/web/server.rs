@@ -10,7 +10,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 
 use super::cors::CorsConfig;
 use super::routes::{api_routes, web_routes, ws_routes, AppState};
-use super::shutdown::{ShutdownConfig, wait_for_shutdown_signal};
+use super::shutdown::{wait_for_shutdown_signal, ShutdownConfig};
 use super::{DEFAULT_BIND, DEFAULT_PORT, DEFAULT_UPLOAD_LIMIT};
 
 /// Server configuration
@@ -274,8 +274,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_web_server_build_router_with_cors() {
-        let config = ServerConfig::default()
-            .with_cors_origins(vec!["https://test.example.com".to_string()]);
+        let config =
+            ServerConfig::default().with_cors_origins(vec!["https://test.example.com".to_string()]);
         let server = WebServer::with_config(config);
         // Router should build successfully with CORS layer
         let _router = server.build_router();

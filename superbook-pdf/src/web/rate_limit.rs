@@ -175,7 +175,10 @@ impl RateLimiter {
         if bucket.try_consume() {
             let remaining = bucket.tokens_remaining() as u32;
             let reset_at = self.calculate_reset_time();
-            RateLimitResult::Allowed { remaining, reset_at }
+            RateLimitResult::Allowed {
+                remaining,
+                reset_at,
+            }
         } else {
             self.rejected_requests.fetch_add(1, Ordering::Relaxed);
             let retry_after = bucket.time_until_refill().as_secs().max(1);
@@ -346,12 +349,24 @@ mod tests {
         let ip2: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2));
 
         // Each IP has its own bucket
-        assert!(matches!(limiter.check(ip1), RateLimitResult::Allowed { .. }));
-        assert!(matches!(limiter.check(ip1), RateLimitResult::Allowed { .. }));
-        assert!(matches!(limiter.check(ip1), RateLimitResult::Limited { .. }));
+        assert!(matches!(
+            limiter.check(ip1),
+            RateLimitResult::Allowed { .. }
+        ));
+        assert!(matches!(
+            limiter.check(ip1),
+            RateLimitResult::Allowed { .. }
+        ));
+        assert!(matches!(
+            limiter.check(ip1),
+            RateLimitResult::Limited { .. }
+        ));
 
         // IP2 should still be allowed
-        assert!(matches!(limiter.check(ip2), RateLimitResult::Allowed { .. }));
+        assert!(matches!(
+            limiter.check(ip2),
+            RateLimitResult::Allowed { .. }
+        ));
 
         assert_eq!(limiter.tracked_ips(), 2);
     }
@@ -504,7 +519,10 @@ mod tests {
         for _ in 0..1000 {
             assert!(matches!(
                 limiter.check(ip),
-                RateLimitResult::Allowed { remaining: u32::MAX, .. }
+                RateLimitResult::Allowed {
+                    remaining: u32::MAX,
+                    ..
+                }
             ));
         }
     }

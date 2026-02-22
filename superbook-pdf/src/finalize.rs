@@ -708,8 +708,14 @@ mod tests {
 
         // Test clipping to image bounds
         let clipped = add_margin_and_clip(&region, 0, 1000, 800);
-        assert!(clipped.right() <= 1000, "Right edge should not exceed image width");
-        assert!(clipped.bottom() <= 800, "Bottom edge should not exceed image height");
+        assert!(
+            clipped.right() <= 1000,
+            "Right edge should not exceed image width"
+        );
+        assert!(
+            clipped.bottom() <= 800,
+            "Bottom edge should not exceed image height"
+        );
     }
 
     // TC-FINAL-003: シフト適用 - 位置移動

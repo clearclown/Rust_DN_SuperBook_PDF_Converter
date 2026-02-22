@@ -171,8 +171,7 @@ impl ApiValidator {
 
     /// Validate a Markdown file
     pub fn validate_file(&self, path: &Path) -> Result<ValidationResult> {
-        let content =
-            std::fs::read_to_string(path).map_err(|e| MarkdownError::IoError(e))?;
+        let content = std::fs::read_to_string(path).map_err(|e| MarkdownError::IoError(e))?;
 
         self.validate(&content)
     }
@@ -190,8 +189,14 @@ impl ApiValidator {
         self.check_table_structure(markdown, &mut issues);
 
         let valid = issues.iter().all(|i| i.severity != IssueSeverity::Error);
-        let error_count = issues.iter().filter(|i| i.severity == IssueSeverity::Error).count();
-        let warning_count = issues.iter().filter(|i| i.severity == IssueSeverity::Warning).count();
+        let error_count = issues
+            .iter()
+            .filter(|i| i.severity == IssueSeverity::Error)
+            .count();
+        let warning_count = issues
+            .iter()
+            .filter(|i| i.severity == IssueSeverity::Warning)
+            .count();
 
         let confidence = if issues.is_empty() {
             1.0
@@ -265,7 +270,8 @@ impl ApiValidator {
         }
 
         if !has_h1 {
-            suggestions.push("Consider adding an H1 heading at the beginning of the document".to_string());
+            suggestions
+                .push("Consider adding an H1 heading at the beginning of the document".to_string());
         }
     }
 
@@ -413,7 +419,10 @@ mod tests {
         let result = validator.validate("").unwrap();
 
         assert!(!result.valid);
-        assert!(result.issues.iter().any(|i| i.description.contains("empty")));
+        assert!(result
+            .issues
+            .iter()
+            .any(|i| i.description.contains("empty")));
     }
 
     #[test]

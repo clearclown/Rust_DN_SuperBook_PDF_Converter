@@ -156,9 +156,10 @@ impl JsonJobStore {
         let content = std::fs::read_to_string(&self.path)?;
         let stored: StoredJobs = serde_json::from_str(&content)?;
 
-        let mut cache = self.cache.write().map_err(|e| {
-            StoreError::Storage(format!("Lock error: {}", e))
-        })?;
+        let mut cache = self
+            .cache
+            .write()
+            .map_err(|e| StoreError::Storage(format!("Lock error: {}", e)))?;
         *cache = stored.jobs;
 
         Ok(())
@@ -187,51 +188,58 @@ impl JsonJobStore {
 
 impl JobStore for JsonJobStore {
     fn save(&self, job: &Job) -> Result<(), StoreError> {
-        let mut cache = self.cache.write().map_err(|e| {
-            StoreError::Storage(format!("Lock error: {}", e))
-        })?;
+        let mut cache = self
+            .cache
+            .write()
+            .map_err(|e| StoreError::Storage(format!("Lock error: {}", e)))?;
         cache.insert(job.id, job.clone());
 
-        let mut dirty = self.dirty.write().map_err(|e| {
-            StoreError::Storage(format!("Lock error: {}", e))
-        })?;
+        let mut dirty = self
+            .dirty
+            .write()
+            .map_err(|e| StoreError::Storage(format!("Lock error: {}", e)))?;
         *dirty = true;
 
         Ok(())
     }
 
     fn get(&self, id: Uuid) -> Result<Option<Job>, StoreError> {
-        let cache = self.cache.read().map_err(|e| {
-            StoreError::Storage(format!("Lock error: {}", e))
-        })?;
+        let cache = self
+            .cache
+            .read()
+            .map_err(|e| StoreError::Storage(format!("Lock error: {}", e)))?;
         Ok(cache.get(&id).cloned())
     }
 
     fn list(&self) -> Result<Vec<Job>, StoreError> {
-        let cache = self.cache.read().map_err(|e| {
-            StoreError::Storage(format!("Lock error: {}", e))
-        })?;
+        let cache = self
+            .cache
+            .read()
+            .map_err(|e| StoreError::Storage(format!("Lock error: {}", e)))?;
         Ok(cache.values().cloned().collect())
     }
 
     fn delete(&self, id: Uuid) -> Result<(), StoreError> {
-        let mut cache = self.cache.write().map_err(|e| {
-            StoreError::Storage(format!("Lock error: {}", e))
-        })?;
+        let mut cache = self
+            .cache
+            .write()
+            .map_err(|e| StoreError::Storage(format!("Lock error: {}", e)))?;
         cache.remove(&id);
 
-        let mut dirty = self.dirty.write().map_err(|e| {
-            StoreError::Storage(format!("Lock error: {}", e))
-        })?;
+        let mut dirty = self
+            .dirty
+            .write()
+            .map_err(|e| StoreError::Storage(format!("Lock error: {}", e)))?;
         *dirty = true;
 
         Ok(())
     }
 
     fn get_pending(&self) -> Result<Vec<Job>, StoreError> {
-        let cache = self.cache.read().map_err(|e| {
-            StoreError::Storage(format!("Lock error: {}", e))
-        })?;
+        let cache = self
+            .cache
+            .read()
+            .map_err(|e| StoreError::Storage(format!("Lock error: {}", e)))?;
 
         Ok(cache
             .values()
@@ -241,9 +249,10 @@ impl JobStore for JsonJobStore {
     }
 
     fn cleanup(&self, older_than: DateTime<Utc>) -> Result<usize, StoreError> {
-        let mut cache = self.cache.write().map_err(|e| {
-            StoreError::Storage(format!("Lock error: {}", e))
-        })?;
+        let mut cache = self
+            .cache
+            .write()
+            .map_err(|e| StoreError::Storage(format!("Lock error: {}", e)))?;
 
         let before = cache.len();
         cache.retain(|_, job| {
@@ -256,9 +265,10 @@ impl JobStore for JsonJobStore {
         let removed = before - cache.len();
 
         if removed > 0 {
-            let mut dirty = self.dirty.write().map_err(|e| {
-                StoreError::Storage(format!("Lock error: {}", e))
-            })?;
+            let mut dirty = self
+                .dirty
+                .write()
+                .map_err(|e| StoreError::Storage(format!("Lock error: {}", e)))?;
             *dirty = true;
         }
 
@@ -266,9 +276,10 @@ impl JobStore for JsonJobStore {
     }
 
     fn flush(&self) -> Result<(), StoreError> {
-        let cache = self.cache.read().map_err(|e| {
-            StoreError::Storage(format!("Lock error: {}", e))
-        })?;
+        let cache = self
+            .cache
+            .read()
+            .map_err(|e| StoreError::Storage(format!("Lock error: {}", e)))?;
 
         let stored = StoredJobs {
             version: 1,
@@ -278,9 +289,10 @@ impl JobStore for JsonJobStore {
         let content = serde_json::to_string_pretty(&stored)?;
         std::fs::write(&self.path, content)?;
 
-        let mut dirty = self.dirty.write().map_err(|e| {
-            StoreError::Storage(format!("Lock error: {}", e))
-        })?;
+        let mut dirty = self
+            .dirty
+            .write()
+            .map_err(|e| StoreError::Storage(format!("Lock error: {}", e)))?;
         *dirty = false;
 
         Ok(())
@@ -387,7 +399,9 @@ impl RecoveryManager {
         for job in all_jobs {
             if job.status == JobStatus::Failed {
                 // Check retry count (stored in a simple way for now)
-                let retry_count = job.error.as_ref()
+                let retry_count = job
+                    .error
+                    .as_ref()
                     .and_then(|e| e.strip_prefix("Retry "))
                     .and_then(|s| s.chars().next())
                     .and_then(|c| c.to_digit(10))
@@ -396,8 +410,11 @@ impl RecoveryManager {
                 if retry_count < max_retries {
                     // Create a new job for retry
                     let mut retry_job = Job::new(&job.input_filename, job.options.clone());
-                    retry_job.error = Some(format!("Retry {}: {}", retry_count + 1,
-                        job.error.as_deref().unwrap_or("Unknown error")));
+                    retry_job.error = Some(format!(
+                        "Retry {}: {}",
+                        retry_count + 1,
+                        job.error.as_deref().unwrap_or("Unknown error")
+                    ));
 
                     self.queue.submit(retry_job);
                     retried += 1;
@@ -572,9 +589,15 @@ mod tests {
         let path = dir.path().join("jobs.json");
         let store = JsonJobStore::new(&path).unwrap();
 
-        store.save(&Job::new("test1.pdf", ConvertOptions::default())).unwrap();
-        store.save(&Job::new("test2.pdf", ConvertOptions::default())).unwrap();
-        store.save(&Job::new("test3.pdf", ConvertOptions::default())).unwrap();
+        store
+            .save(&Job::new("test1.pdf", ConvertOptions::default()))
+            .unwrap();
+        store
+            .save(&Job::new("test2.pdf", ConvertOptions::default()))
+            .unwrap();
+        store
+            .save(&Job::new("test3.pdf", ConvertOptions::default()))
+            .unwrap();
 
         let jobs = store.list().unwrap();
         assert_eq!(jobs.len(), 3);

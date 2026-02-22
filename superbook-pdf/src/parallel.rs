@@ -706,7 +706,9 @@ mod tests {
 
     #[test]
     fn test_parallel_map_preserves_order() {
-        let paths: Vec<PathBuf> = (0..20).map(|i| PathBuf::from(format!("{:02}", i))).collect();
+        let paths: Vec<PathBuf> = (0..20)
+            .map(|i| PathBuf::from(format!("{:02}", i)))
+            .collect();
 
         let results = parallel_map(&paths, |p| p.to_string_lossy().to_string(), 4);
 

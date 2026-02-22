@@ -149,7 +149,12 @@ pub struct ReprocessState {
 
 impl ReprocessState {
     /// Create a new ReprocessState for a PDF
-    pub fn new(source_pdf: PathBuf, output_dir: PathBuf, page_count: usize, config_hash: String) -> Self {
+    pub fn new(
+        source_pdf: PathBuf,
+        output_dir: PathBuf,
+        page_count: usize,
+        config_hash: String,
+    ) -> Self {
         let now = chrono_now();
         Self {
             source_pdf,
@@ -227,7 +232,12 @@ impl ReprocessState {
     }
 
     /// Mark a page as successful
-    pub fn mark_success(&mut self, page_idx: usize, cached_path: PathBuf, processing_time: f64) -> Result<()> {
+    pub fn mark_success(
+        &mut self,
+        page_idx: usize,
+        cached_path: PathBuf,
+        processing_time: f64,
+    ) -> Result<()> {
         if page_idx >= self.pages.len() {
             return Err(ReprocessError::PageIndexOutOfBounds(page_idx));
         }
@@ -521,10 +531,16 @@ mod tests {
             "hash".into(),
         );
 
-        state.mark_success(1, PathBuf::from("cached.png"), 2.5).unwrap();
+        state
+            .mark_success(1, PathBuf::from("cached.png"), 2.5)
+            .unwrap();
 
         assert!(state.pages[1].is_success());
-        if let PageStatus::Success { cached_path, processing_time } = &state.pages[1] {
+        if let PageStatus::Success {
+            cached_path,
+            processing_time,
+        } = &state.pages[1]
+        {
             assert_eq!(cached_path.to_str().unwrap(), "cached.png");
             assert!((processing_time - 2.5).abs() < 0.01);
         }
@@ -558,7 +574,10 @@ mod tests {
         );
 
         let result = state.mark_success(10, PathBuf::new(), 0.0);
-        assert!(matches!(result, Err(ReprocessError::PageIndexOutOfBounds(10))));
+        assert!(matches!(
+            result,
+            Err(ReprocessError::PageIndexOutOfBounds(10))
+        ));
     }
 
     #[test]

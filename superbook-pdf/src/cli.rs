@@ -98,8 +98,6 @@ pub enum Commands {
     Info,
     /// Show cache information for a processed file
     CacheInfo(CacheInfoArgs),
-    /// Convert scanned PDF to Markdown with figures extracted
-    Markdown(MarkdownArgs),
     /// Start web server for browser-based conversion
     #[cfg(feature = "web")]
     Serve(ServeArgs),
@@ -236,6 +234,40 @@ pub struct MarkdownArgs {
     /// Suppress progress output
     #[arg(short, long)]
     pub quiet: bool,
+
+    /// Resume interrupted processing
+    #[arg(long)]
+    pub resume: bool,
+
+    /// Output DPI (1-4800)
+    #[arg(long, default_value_t = 300, value_parser = clap::value_parser!(u32).range(1..=4800))]
+    pub dpi: u32,
+
+    /// Enable AI upscaling before OCR
+    #[arg(long)]
+    pub upscale: bool,
+
+    /// Enable deskew correction
+    #[arg(long, default_value_t = true)]
+    #[arg(action = clap::ArgAction::Set)]
+    pub deskew: bool,
+
+    /// Disable deskew correction
+    #[arg(long = "no-deskew")]
+    #[arg(action = clap::ArgAction::SetTrue)]
+    no_deskew: bool,
+
+    /// Maximum pages to process
+    #[arg(long)]
+    pub max_pages: Option<usize>,
+
+    /// Figure detection sensitivity (0.0-1.0)
+    #[arg(long)]
+    pub figure_sensitivity: Option<f32>,
+
+    /// Enable GPU processing
+    #[arg(short, long)]
+    pub gpu: bool,
 }
 
 impl MarkdownArgs {
@@ -247,6 +279,11 @@ impl MarkdownArgs {
     /// Get effective detect_tables setting
     pub fn effective_detect_tables(&self) -> bool {
         self.detect_tables && !self.no_detect_tables
+    }
+
+    /// Get effective deskew setting (considering --no-deskew flag)
+    pub fn effective_deskew(&self) -> bool {
+        self.deskew && !self.no_deskew
     }
 }
 
@@ -301,80 +338,6 @@ impl ReprocessArgs {
     /// Get page indices to reprocess (empty means all failed)
     pub fn page_indices(&self) -> Vec<usize> {
         self.pages.clone().unwrap_or_default()
-    }
-}
-
-/// Arguments for the markdown command
-#[derive(Args, Debug)]
-#[command(after_help = r#"
-Examples:
-  # 基本的なMarkdown変換
-  superbook-pdf markdown input.pdf -o output/
-
-  # AI超解像付きMarkdown変換
-  superbook-pdf markdown input.pdf -o output/ --upscale --gpu
-
-  # 最初の20ページのみテスト
-  superbook-pdf markdown input.pdf -o output/ --max-pages 20
-
-  # 中断後の再開
-  superbook-pdf markdown input.pdf -o output/ --resume
-"#)]
-pub struct MarkdownArgs {
-    /// Input PDF file
-    pub input: PathBuf,
-
-    /// Output directory
-    #[arg(short = 'o', long = "output", default_value = "./output")]
-    pub output: PathBuf,
-
-    /// Resume interrupted processing
-    #[arg(long)]
-    pub resume: bool,
-
-    /// Output DPI (1-4800)
-    #[arg(long, default_value_t = 300, value_parser = clap::value_parser!(u32).range(1..=4800))]
-    pub dpi: u32,
-
-    /// Enable AI upscaling before OCR
-    #[arg(long)]
-    pub upscale: bool,
-
-    /// Enable deskew correction
-    #[arg(long, default_value_t = true)]
-    #[arg(action = clap::ArgAction::Set)]
-    pub deskew: bool,
-
-    /// Disable deskew correction
-    #[arg(long = "no-deskew")]
-    #[arg(action = clap::ArgAction::SetTrue)]
-    no_deskew: bool,
-
-    /// Maximum pages to process
-    #[arg(long)]
-    pub max_pages: Option<usize>,
-
-    /// Figure detection sensitivity (0.0-1.0)
-    #[arg(long)]
-    pub figure_sensitivity: Option<f32>,
-
-    /// Verbosity level (-v, -vv, -vvv)
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    pub verbose: u8,
-
-    /// Suppress progress output
-    #[arg(short, long)]
-    pub quiet: bool,
-
-    /// Enable GPU processing
-    #[arg(short, long)]
-    pub gpu: bool,
-}
-
-impl MarkdownArgs {
-    /// Get effective deskew setting (considering --no-deskew flag)
-    pub fn effective_deskew(&self) -> bool {
-        self.deskew && !self.no_deskew
     }
 }
 
@@ -1048,8 +1011,14 @@ mod tests {
     // Test output path argument (--output / -o)
     #[test]
     fn test_output_path() {
-        let cli = Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "-o", "/custom/output"])
-            .unwrap();
+        let cli = Cli::try_parse_from([
+            "superbook-pdf",
+            "convert",
+            "input.pdf",
+            "-o",
+            "/custom/output",
+        ])
+        .unwrap();
 
         if let Commands::Convert(args) = cli.command {
             assert_eq!(args.output, PathBuf::from("/custom/output"));
@@ -1494,7 +1463,9 @@ mod tests {
 
     #[test]
     fn test_short_flag_o_output() {
-        let cli = Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "-o", "/custom/out"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "-o", "/custom/out"])
+                .unwrap();
         if let Commands::Convert(args) = cli.command {
             assert_eq!(args.output, PathBuf::from("/custom/out"));
         }
@@ -1885,9 +1856,14 @@ mod tests {
 
     #[test]
     fn test_chunk_size_explicit() {
-        let cli =
-            Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "--chunk-size", "10"])
-                .unwrap();
+        let cli = Cli::try_parse_from([
+            "superbook-pdf",
+            "convert",
+            "input.pdf",
+            "--chunk-size",
+            "10",
+        ])
+        .unwrap();
         if let Commands::Convert(args) = cli.command {
             assert_eq!(args.chunk_size, 10);
         }
@@ -1895,9 +1871,14 @@ mod tests {
 
     #[test]
     fn test_chunk_size_large() {
-        let cli =
-            Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "--chunk-size", "100"])
-                .unwrap();
+        let cli = Cli::try_parse_from([
+            "superbook-pdf",
+            "convert",
+            "input.pdf",
+            "--chunk-size",
+            "100",
+        ])
+        .unwrap();
         if let Commands::Convert(args) = cli.command {
             assert_eq!(args.chunk_size, 100);
         }
@@ -2006,8 +1987,8 @@ mod tests {
         let outputs = ["./output", "/tmp/out", "../parent/out", "relative/path"];
 
         for output in outputs {
-            let cli =
-                Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "-o", output]).unwrap();
+            let cli = Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "-o", output])
+                .unwrap();
             if let Commands::Convert(args) = cli.command {
                 assert_eq!(args.output.to_string_lossy(), output);
             }
@@ -2140,9 +2121,8 @@ mod tests {
 
     #[test]
     fn test_skip_existing_enabled() {
-        let cli =
-            Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "--skip-existing"])
-                .unwrap();
+        let cli = Cli::try_parse_from(["superbook-pdf", "convert", "input.pdf", "--skip-existing"])
+            .unwrap();
         if let Commands::Convert(args) = cli.command {
             assert!(args.skip_existing);
         }
@@ -2268,8 +2248,7 @@ mod tests {
 
     #[test]
     fn test_cache_info_command() {
-        let cli =
-            Cli::try_parse_from(["superbook-pdf", "cache-info", "output.pdf"]).unwrap();
+        let cli = Cli::try_parse_from(["superbook-pdf", "cache-info", "output.pdf"]).unwrap();
         if let Commands::CacheInfo(args) = cli.command {
             assert_eq!(args.output_pdf, PathBuf::from("output.pdf"));
         } else {
@@ -2279,12 +2258,8 @@ mod tests {
 
     #[test]
     fn test_cache_info_with_path() {
-        let cli = Cli::try_parse_from([
-            "superbook-pdf",
-            "cache-info",
-            "/path/to/output.pdf",
-        ])
-        .unwrap();
+        let cli =
+            Cli::try_parse_from(["superbook-pdf", "cache-info", "/path/to/output.pdf"]).unwrap();
         if let Commands::CacheInfo(args) = cli.command {
             assert_eq!(args.output_pdf, PathBuf::from("/path/to/output.pdf"));
         } else {
@@ -2416,8 +2391,7 @@ mod tests {
 
     #[test]
     fn test_reprocess_with_verbose() {
-        let cli =
-            Cli::try_parse_from(["superbook-pdf", "reprocess", "input.pdf", "-vvv"]).unwrap();
+        let cli = Cli::try_parse_from(["superbook-pdf", "reprocess", "input.pdf", "-vvv"]).unwrap();
         if let Commands::Reprocess(args) = cli.command {
             assert_eq!(args.verbose, 3);
         } else {
@@ -2427,8 +2401,7 @@ mod tests {
 
     #[test]
     fn test_reprocess_with_quiet() {
-        let cli =
-            Cli::try_parse_from(["superbook-pdf", "reprocess", "input.pdf", "-q"]).unwrap();
+        let cli = Cli::try_parse_from(["superbook-pdf", "reprocess", "input.pdf", "-q"]).unwrap();
         if let Commands::Reprocess(args) = cli.command {
             assert!(args.quiet);
         } else {
@@ -2438,12 +2411,9 @@ mod tests {
 
     #[test]
     fn test_reprocess_state_file_detection() {
-        let cli = Cli::try_parse_from([
-            "superbook-pdf",
-            "reprocess",
-            "output/.superbook-state.json",
-        ])
-        .unwrap();
+        let cli =
+            Cli::try_parse_from(["superbook-pdf", "reprocess", "output/.superbook-state.json"])
+                .unwrap();
         if let Commands::Reprocess(args) = cli.command {
             assert!(args.is_state_file());
         } else {
@@ -2513,8 +2483,8 @@ mod tests {
 
     #[test]
     fn test_reprocess_args_clone() {
-        let cli = Cli::try_parse_from(["superbook-pdf", "reprocess", "input.pdf", "--force"])
-            .unwrap();
+        let cli =
+            Cli::try_parse_from(["superbook-pdf", "reprocess", "input.pdf", "--force"]).unwrap();
         if let Commands::Reprocess(args) = cli.command {
             let cloned = args.clone();
             assert_eq!(args.input, cloned.input);

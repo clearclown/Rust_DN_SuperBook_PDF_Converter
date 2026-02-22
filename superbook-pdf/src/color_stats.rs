@@ -169,8 +169,8 @@ impl Default for BleedSuppression {
             hue_max: 65.0,
             // C# version uses BleedValueMin = 0.35, no saturation check
             // But we keep saturation_max for additional filtering
-            saturation_max: 1.0,  // No saturation filter (match C# behavior)
-            value_min: 0.35,      // Match C# BleedValueMin = 0.35
+            saturation_max: 1.0, // No saturation filter (match C# behavior)
+            value_min: 0.35,     // Match C# BleedValueMin = 0.35
             enabled: true,
             strength: 1.0,
         }
@@ -1043,7 +1043,7 @@ mod tests {
     fn test_tc_color_002_yellowed_paper_correction() {
         // Create image with yellowed paper (cream/beige tint)
         let mut img = RgbImage::from_pixel(100, 100, Rgb([245, 235, 210])); // Yellowed paper
-        // Add some dark text
+                                                                            // Add some dark text
         for y in 40..60 {
             for x in 20..80 {
                 img.put_pixel(x, y, Rgb([30, 25, 20]));
@@ -1082,7 +1082,7 @@ mod tests {
     fn test_tc_color_003_ghost_suppression_params() {
         // Create realistic book page: white paper with dark text
         let mut img = RgbImage::from_pixel(100, 100, Rgb([245, 243, 240])); // Slightly off-white paper
-        // Add dark text
+                                                                            // Add dark text
         for y in 30..40 {
             for x in 20..80 {
                 img.put_pixel(x, y, Rgb([30, 28, 25])); // Dark ink
@@ -1273,8 +1273,8 @@ mod tests {
         assert_eq!(bleed.hue_min, 20.0);
         assert_eq!(bleed.hue_max, 65.0);
         // C# version: no saturation filter, BleedValueMin = 0.35
-        assert_eq!(bleed.saturation_max, 1.0);  // No saturation filter
-        assert_eq!(bleed.value_min, 0.35);      // Match C# BleedValueMin
+        assert_eq!(bleed.saturation_max, 1.0); // No saturation filter
+        assert_eq!(bleed.value_min, 0.35); // Match C# BleedValueMin
         assert!(bleed.enabled);
         assert_eq!(bleed.strength, 1.0);
     }

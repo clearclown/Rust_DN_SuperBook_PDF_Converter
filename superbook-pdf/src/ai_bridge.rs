@@ -88,6 +88,8 @@ pub struct AiBridgeConfig {
     pub retry_config: RetryConfig,
     /// Log level
     pub log_level: LogLevel,
+    /// Directory containing bridge scripts (None = auto-detect)
+    pub bridge_scripts_dir: Option<PathBuf>,
 }
 
 impl Default for AiBridgeConfig {
@@ -98,6 +100,7 @@ impl Default for AiBridgeConfig {
             timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
             retry_config: RetryConfig::default(),
             log_level: LogLevel::Info,
+            bridge_scripts_dir: None,
         }
     }
 }
@@ -196,6 +199,13 @@ impl AiBridgeConfigBuilder {
     #[must_use]
     pub fn log_level(mut self, level: LogLevel) -> Self {
         self.config.log_level = level;
+        self
+    }
+
+    /// Set bridge scripts directory
+    #[must_use]
+    pub fn bridge_scripts_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.config.bridge_scripts_dir = Some(dir.into());
         self
     }
 
@@ -318,6 +328,92 @@ impl AiTool {
             AiTool::YomiToku => "yomitoku",
         }
     }
+
+    /// Get the bridge script filename
+    #[must_use]
+    pub fn bridge_script_name(&self) -> &str {
+        match self {
+            AiTool::RealESRGAN => "realesrgan_bridge.py",
+            AiTool::YomiToku => "yomitoku_bridge.py",
+        }
+    }
+
+    /// Get the display name for user-facing messages
+    #[must_use]
+    pub fn display_name(&self) -> &str {
+        match self {
+            AiTool::RealESRGAN => "RealESRGAN",
+            AiTool::YomiToku => "YomiToku",
+        }
+    }
+}
+
+impl std::fmt::Display for AiTool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.display_name())
+    }
+}
+
+/// Resolve the path to a bridge script for the given AI tool.
+///
+/// Search order:
+/// 1. `config.bridge_scripts_dir` (if specified)
+/// 2. `config.venv_path.parent()` (venv parent directory)
+/// 3. Current executable's directory / `ai_bridge/`
+/// 4. `./ai_bridge/` (current working directory)
+///
+/// Returns the path if found, or an error with all searched paths.
+pub fn resolve_bridge_script(tool: AiTool, config: &AiBridgeConfig) -> Result<PathBuf> {
+    let script_name = tool.bridge_script_name();
+    let mut searched_paths = Vec::new();
+
+    // 1. Check explicit bridge_scripts_dir
+    if let Some(ref dir) = config.bridge_scripts_dir {
+        let path = dir.join(script_name);
+        if path.exists() {
+            return Ok(path);
+        }
+        searched_paths.push(path);
+    }
+
+    // 2. Check venv parent directory
+    if let Some(parent) = config.venv_path.parent() {
+        let path = parent.join(script_name);
+        if path.exists() {
+            return Ok(path);
+        }
+        searched_paths.push(path);
+    }
+
+    // 3. Check executable's directory / ai_bridge/
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let path = exe_dir.join("ai_bridge").join(script_name);
+            if path.exists() {
+                return Ok(path);
+            }
+            searched_paths.push(path);
+        }
+    }
+
+    // 4. Check ./ai_bridge/ (CWD)
+    let cwd_path = PathBuf::from("ai_bridge").join(script_name);
+    if cwd_path.exists() {
+        return Ok(cwd_path);
+    }
+    searched_paths.push(cwd_path);
+
+    // Not found anywhere
+    let paths_str: Vec<String> = searched_paths
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect();
+    Err(AiBridgeError::ProcessFailed(format!(
+        "Bridge script '{}' for {} not found. Searched paths:\n  - {}",
+        script_name,
+        tool.display_name(),
+        paths_str.join("\n  - ")
+    )))
 }
 
 /// AI Bridge trait
@@ -353,11 +449,27 @@ pub struct SubprocessBridge {
 
 impl SubprocessBridge {
     /// Create a new subprocess bridge
+    ///
+    /// Validates that the venv exists and warns if bridge scripts cannot be found.
     #[allow(clippy::redundant_clone)] // Clone needed due to partial move restrictions
     pub fn new(config: AiBridgeConfig) -> Result<Self> {
         // Check if venv exists or allow creation
         if !config.venv_path.exists() && !config.venv_path.to_string_lossy().contains("test") {
             return Err(AiBridgeError::VenvNotFound(config.venv_path.clone()));
+        }
+
+        // Pre-check bridge script availability and warn if missing
+        for tool in &[AiTool::RealESRGAN, AiTool::YomiToku] {
+            if resolve_bridge_script(*tool, &config).is_err() {
+                eprintln!(
+                    "Warning: Bridge script for {} not found. \
+                     {} will not work until '{}' is placed in the ai_bridge/ directory \
+                     or SUPERBOOK_BRIDGE_SCRIPTS_DIR is set.",
+                    tool.display_name(),
+                    tool.display_name(),
+                    tool.bridge_script_name(),
+                );
+            }
         }
 
         Ok(Self { config })
@@ -433,20 +545,8 @@ impl SubprocessBridge {
         let start_time = std::time::Instant::now();
         let python = self.get_python_path();
 
-        // Get bridge script path (relative to venv parent directory)
-        let bridge_dir = self.config.venv_path.parent().unwrap_or(Path::new("."));
-        let bridge_script = match tool {
-            AiTool::RealESRGAN => bridge_dir.join("realesrgan_bridge.py"),
-            AiTool::YomiToku => bridge_dir.join("yomitoku_bridge.py"),
-        };
-
-        // Check if bridge script exists
-        if !bridge_script.exists() {
-            return Err(AiBridgeError::ProcessFailed(format!(
-                "Bridge script not found: {}",
-                bridge_script.display()
-            )));
-        }
+        // Resolve bridge script path using multi-path fallback
+        let bridge_script = resolve_bridge_script(tool, &self.config)?;
 
         let mut processed = Vec::new();
         let mut failed = Vec::new();
@@ -472,7 +572,8 @@ impl SubprocessBridge {
                         cmd.arg("-o").arg(&output_path);
 
                         // Extract options from tool_options if available
-                        if let Some(opts) = tool_options.downcast_ref::<crate::RealEsrganOptions>() {
+                        if let Some(opts) = tool_options.downcast_ref::<crate::RealEsrganOptions>()
+                        {
                             cmd.arg("-s").arg(opts.scale.to_string());
                             cmd.arg("-t").arg(opts.tile_size.to_string());
                             if let Some(gpu_id) = opts.gpu_id {
@@ -1720,5 +1821,184 @@ mod tests {
         let err = AiBridgeError::Timeout(Duration::from_secs(86400 * 365));
         let msg = err.to_string();
         assert!(!msg.is_empty());
+    }
+
+    // ============ Issue #44: Bridge Script Resolution Tests ============
+
+    #[test]
+    fn test_resolve_bridge_script_from_bridge_scripts_dir() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let script_path = temp_dir.path().join("realesrgan_bridge.py");
+        std::fs::write(&script_path, "# bridge script").unwrap();
+
+        let config = AiBridgeConfig::builder()
+            .venv_path("/nonexistent/venv")
+            .bridge_scripts_dir(temp_dir.path())
+            .build();
+
+        let result = resolve_bridge_script(AiTool::RealESRGAN, &config);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), script_path);
+    }
+
+    #[test]
+    fn test_resolve_bridge_script_from_venv_parent() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        // Create venv subdirectory
+        let venv_dir = temp_dir.path().join("venv");
+        std::fs::create_dir(&venv_dir).unwrap();
+        // Place script in parent of venv
+        let script_path = temp_dir.path().join("yomitoku_bridge.py");
+        std::fs::write(&script_path, "# bridge script").unwrap();
+
+        let config = AiBridgeConfig::builder().venv_path(&venv_dir).build();
+
+        let result = resolve_bridge_script(AiTool::YomiToku, &config);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), script_path);
+    }
+
+    #[test]
+    fn test_resolve_bridge_script_fallback_chain() {
+        // When explicit paths don't exist, resolution either falls back to CWD
+        // or fails entirely depending on whether ai_bridge/ exists in CWD.
+        let config = AiBridgeConfig::builder()
+            .venv_path("/nonexistent/venv")
+            .bridge_scripts_dir("/nonexistent/scripts")
+            .build();
+
+        let result = resolve_bridge_script(AiTool::RealESRGAN, &config);
+        let cwd_script = PathBuf::from("ai_bridge").join("realesrgan_bridge.py");
+        if cwd_script.exists() {
+            // CWD fallback found it
+            assert!(result.is_ok());
+            assert!(result.unwrap().ends_with("realesrgan_bridge.py"));
+        } else {
+            assert!(result.is_err());
+        }
+    }
+
+    #[test]
+    fn test_resolve_bridge_script_not_found() {
+        // Use a unique nonexistent script name that won't exist anywhere
+        // Test the error message format by using a temp dir with no scripts
+        let temp_dir = tempfile::tempdir().unwrap();
+        let scripts_dir = temp_dir.path().join("empty_scripts");
+        std::fs::create_dir(&scripts_dir).unwrap();
+        let venv_dir = temp_dir.path().join("fake_venv");
+        std::fs::create_dir(&venv_dir).unwrap();
+
+        let config = AiBridgeConfig::builder()
+            .venv_path(&venv_dir)
+            .bridge_scripts_dir(&scripts_dir)
+            .build();
+
+        let result = resolve_bridge_script(AiTool::RealESRGAN, &config);
+        // If CWD has ai_bridge/, this will succeed via CWD fallback
+        let cwd_script = PathBuf::from("ai_bridge").join("realesrgan_bridge.py");
+        if cwd_script.exists() {
+            assert!(result.is_ok());
+        } else {
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            assert!(err_msg.contains("realesrgan_bridge.py"));
+            assert!(err_msg.contains("RealESRGAN"));
+            assert!(err_msg.contains("not found"));
+        }
+    }
+
+    #[test]
+    fn test_resolve_bridge_script_realesrgan_vs_yomitoku() {
+        assert_eq!(
+            AiTool::RealESRGAN.bridge_script_name(),
+            "realesrgan_bridge.py"
+        );
+        assert_eq!(AiTool::YomiToku.bridge_script_name(), "yomitoku_bridge.py");
+    }
+
+    #[test]
+    fn test_bridge_config_with_scripts_dir() {
+        let config = AiBridgeConfig::builder()
+            .bridge_scripts_dir("/opt/scripts")
+            .build();
+
+        assert_eq!(
+            config.bridge_scripts_dir,
+            Some(PathBuf::from("/opt/scripts"))
+        );
+    }
+
+    #[test]
+    fn test_bridge_config_default_no_scripts_dir() {
+        let config = AiBridgeConfig::default();
+        assert!(config.bridge_scripts_dir.is_none());
+    }
+
+    #[test]
+    fn test_execute_with_missing_script_error_message() {
+        // Create a bridge with a test venv path
+        let config = AiBridgeConfig::builder()
+            .venv_path("tests/fixtures/test_venv")
+            .build();
+
+        // Attempt to resolve a non-existent bridge script
+        let result = resolve_bridge_script(AiTool::RealESRGAN, &config);
+
+        // The error message should contain path information
+        if let Err(e) = result {
+            let msg = e.to_string();
+            assert!(
+                msg.contains("realesrgan_bridge.py"),
+                "Error should mention script name: {}",
+                msg
+            );
+            assert!(
+                msg.contains("RealESRGAN"),
+                "Error should mention tool name: {}",
+                msg
+            );
+        }
+    }
+
+    #[test]
+    fn test_bridge_script_exists_validation() {
+        // Test that resolve_bridge_script validates existence
+        let temp_dir = tempfile::tempdir().unwrap();
+        let scripts_dir = temp_dir.path().join("scripts");
+        std::fs::create_dir(&scripts_dir).unwrap();
+        let venv_dir = temp_dir.path().join("venv");
+        std::fs::create_dir(&venv_dir).unwrap();
+
+        let config = AiBridgeConfig::builder()
+            .bridge_scripts_dir(&scripts_dir)
+            .venv_path(&venv_dir)
+            .build();
+
+        // No script in specified dir: may still succeed via CWD fallback
+        let result = resolve_bridge_script(AiTool::RealESRGAN, &config);
+        let cwd_script = PathBuf::from("ai_bridge").join("realesrgan_bridge.py");
+        if cwd_script.exists() {
+            // CWD fallback kicks in — this is expected behavior
+            assert!(result.is_ok());
+        } else {
+            assert!(result.is_err());
+        }
+
+        // Create script: should succeed
+        let script_path = temp_dir.path().join("realesrgan_bridge.py");
+        std::fs::write(&script_path, "# script").unwrap();
+
+        let result = resolve_bridge_script(AiTool::RealESRGAN, &config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_ai_tool_display_names() {
+        assert_eq!(AiTool::RealESRGAN.display_name(), "RealESRGAN");
+        assert_eq!(AiTool::YomiToku.display_name(), "YomiToku");
+
+        // Test Display trait
+        assert_eq!(format!("{}", AiTool::RealESRGAN), "RealESRGAN");
+        assert_eq!(format!("{}", AiTool::YomiToku), "YomiToku");
     }
 }
