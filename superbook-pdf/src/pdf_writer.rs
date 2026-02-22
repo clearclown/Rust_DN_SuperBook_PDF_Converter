@@ -1969,19 +1969,44 @@ mod tests {
 
     #[test]
     fn test_find_cjk_font_nonexistent_path() {
-        // Specifying a non-existent custom path should return None and fall through
+        // Specifying a non-existent custom path should fall through to system fonts
         let result = find_cjk_font(Some(Path::new("/nonexistent/font.ttf")));
-        // Result depends on whether system fonts exist, but should not panic
-        // If system fonts exist, returns Some; otherwise None
-        let _ = result;
+        // The custom path doesn't exist, so it should NOT be returned
+        if let Some(ref path) = result {
+            // If a font was found, it must be a system font, NOT the nonexistent path
+            assert_ne!(
+                path,
+                Path::new("/nonexistent/font.ttf"),
+                "Should not return the nonexistent custom path"
+            );
+            assert!(
+                path.exists(),
+                "Returned font path should actually exist: {}",
+                path.display()
+            );
+        }
+        // If None, no system fonts available — that's acceptable
     }
 
     #[test]
     fn test_find_cjk_font_no_custom_path() {
-        // No custom path: search system fonts
+        // No custom path: search system fonts only
         let result = find_cjk_font(None);
-        // Result depends on system; should not panic
-        let _ = result;
+        if let Some(ref path) = result {
+            assert!(
+                path.exists(),
+                "Returned system font path should exist: {}",
+                path.display()
+            );
+            // Verify it's a known font file extension
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            assert!(
+                ext == "ttf" || ext == "ttc" || ext == "otf",
+                "Font should have a font file extension, got: {}",
+                path.display()
+            );
+        }
+        // If None, no system fonts available — acceptable in minimal environments
     }
 
     #[test]

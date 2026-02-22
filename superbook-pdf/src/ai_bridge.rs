@@ -453,8 +453,8 @@ impl SubprocessBridge {
     /// Validates that the venv exists and warns if bridge scripts cannot be found.
     #[allow(clippy::redundant_clone)] // Clone needed due to partial move restrictions
     pub fn new(config: AiBridgeConfig) -> Result<Self> {
-        // Check if venv exists or allow creation
-        if !config.venv_path.exists() && !config.venv_path.to_string_lossy().contains("test") {
+        // Check if venv exists
+        if !config.venv_path.exists() {
             return Err(AiBridgeError::VenvNotFound(config.venv_path.clone()));
         }
 
@@ -1936,17 +1936,33 @@ mod tests {
 
     #[test]
     fn test_execute_with_missing_script_error_message() {
-        // Create a bridge with a test venv path
+        // Use a unique temp dir to ensure no CWD fallback can find the script
+        let temp_dir = tempfile::tempdir().unwrap();
+        let fake_venv = temp_dir.path().join("fake_venv");
+        std::fs::create_dir(&fake_venv).unwrap();
+        let fake_scripts = temp_dir.path().join("no_scripts_here");
+        std::fs::create_dir(&fake_scripts).unwrap();
+
         let config = AiBridgeConfig::builder()
-            .venv_path("tests/fixtures/test_venv")
+            .venv_path(&fake_venv)
+            .bridge_scripts_dir(&fake_scripts)
             .build();
 
         // Attempt to resolve a non-existent bridge script
         let result = resolve_bridge_script(AiTool::RealESRGAN, &config);
 
-        // The error message should contain path information
-        if let Err(e) = result {
-            let msg = e.to_string();
+        // CWD fallback may find ai_bridge/realesrgan_bridge.py in the project directory
+        let cwd_script = PathBuf::from("ai_bridge").join("realesrgan_bridge.py");
+        if cwd_script.exists() {
+            // CWD fallback kicked in — script was found via CWD
+            assert!(result.is_ok(), "CWD fallback should find the script");
+        } else {
+            // No CWD fallback — must be an error with descriptive message
+            assert!(
+                result.is_err(),
+                "Should fail when no script exists anywhere"
+            );
+            let msg = result.unwrap_err().to_string();
             assert!(
                 msg.contains("realesrgan_bridge.py"),
                 "Error should mention script name: {}",
@@ -1978,18 +1994,22 @@ mod tests {
         let result = resolve_bridge_script(AiTool::RealESRGAN, &config);
         let cwd_script = PathBuf::from("ai_bridge").join("realesrgan_bridge.py");
         if cwd_script.exists() {
-            // CWD fallback kicks in — this is expected behavior
-            assert!(result.is_ok());
+            assert!(result.is_ok(), "CWD fallback should find the script");
         } else {
-            assert!(result.is_err());
+            assert!(result.is_err(), "Should fail when no script found");
         }
 
-        // Create script: should succeed
-        let script_path = temp_dir.path().join("realesrgan_bridge.py");
-        std::fs::write(&script_path, "# script").unwrap();
+        // Create script IN THE SCRIPTS_DIR (not temp_dir root): should succeed
+        let script_path = scripts_dir.join("realesrgan_bridge.py");
+        std::fs::write(&script_path, "# bridge script").unwrap();
 
         let result = resolve_bridge_script(AiTool::RealESRGAN, &config);
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Should find script in bridge_scripts_dir");
+        let resolved = result.unwrap();
+        assert_eq!(
+            resolved, script_path,
+            "Should resolve to the script in bridge_scripts_dir, not CWD fallback"
+        );
     }
 
     #[test]

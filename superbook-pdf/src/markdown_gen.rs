@@ -627,16 +627,49 @@ mod tests {
         );
 
         // Should have: Text (before figure), Figure, Text (after figure), PageBreak
-        let has_figure = content
-            .elements
-            .iter()
-            .any(|e| matches!(e, ContentElement::Figure { .. }));
-        let has_text = content
-            .elements
-            .iter()
-            .any(|e| matches!(e, ContentElement::Text { .. }));
-        assert!(has_figure);
-        assert!(has_text);
+        // Verify the ORDER: Text -> Figure -> Text -> PageBreak
+        assert!(
+            content.elements.len() >= 4,
+            "Expected at least 4 elements (Text, Figure, Text, PageBreak), got {}",
+            content.elements.len()
+        );
+
+        // Element 0: Text containing "文章の前" (text before figure at y=0)
+        match &content.elements[0] {
+            ContentElement::Text { content: text, .. } => {
+                assert!(
+                    text.contains("文章の前"),
+                    "First element should contain '文章の前', got '{}'",
+                    text
+                );
+            }
+            other => panic!("Expected Text as first element, got {:?}", other),
+        }
+
+        // Element 1: Figure
+        assert!(
+            matches!(content.elements[1], ContentElement::Figure { .. }),
+            "Second element should be Figure, got {:?}",
+            content.elements[1]
+        );
+
+        // Element 2: Text containing "文章の後" (text after figure at y=400)
+        match &content.elements[2] {
+            ContentElement::Text { content: text, .. } => {
+                assert!(
+                    text.contains("文章の後"),
+                    "Third element should contain '文章の後', got '{}'",
+                    text
+                );
+            }
+            other => panic!("Expected Text as third element, got {:?}", other),
+        }
+
+        // Element 3: PageBreak
+        assert!(
+            matches!(content.elements.last().unwrap(), ContentElement::PageBreak),
+            "Last element should be PageBreak"
+        );
     }
 
     #[test]
@@ -751,6 +784,84 @@ mod tests {
         let md = gen.generate_page_markdown(&content).unwrap();
         assert!(md.contains("![](images/page_001_full.png)"));
         assert!(md.contains("---"));
+    }
+
+    #[test]
+    fn test_sanitize_filename_empty_string() {
+        // Empty string should produce empty result — not panic
+        let result = sanitize_filename("");
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_merge_pages_zero_pages() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let gen = MarkdownGenerator::new(tmpdir.path()).unwrap();
+
+        // Merging 0 pages should produce a file with only the title header
+        let merged_path = gen.merge_pages("空の本", 0).unwrap();
+        assert!(merged_path.exists());
+
+        let content = std::fs::read_to_string(&merged_path).unwrap();
+        assert!(content.contains("# 空の本"));
+        // Should have only the title and a newline, no page content
+        let lines: Vec<&str> = content.lines().collect();
+        assert!(
+            lines.len() <= 2,
+            "0-page merge should have only title, got {} lines",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_page_content_no_elements() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let gen = MarkdownGenerator::new(tmpdir.path()).unwrap();
+
+        let content = PageContent {
+            page_index: 0,
+            elements: vec![],
+        };
+
+        let md = gen.generate_page_markdown(&content).unwrap();
+        // Empty elements should produce empty markdown (no panic, no garbage)
+        assert!(
+            md.is_empty(),
+            "PageContent with no elements should produce empty markdown, got '{}'",
+            md
+        );
+    }
+
+    #[test]
+    fn test_build_page_content_very_large_page_index() {
+        use crate::figure_detect::PageClassification;
+        use std::time::Duration;
+
+        let tmpdir = tempfile::tempdir().unwrap();
+        let gen = MarkdownGenerator::new(tmpdir.path()).unwrap();
+
+        let ocr = OcrResult {
+            input_path: "test.png".into(),
+            text_blocks: vec![],
+            confidence: 0.0,
+            processing_time: Duration::from_millis(10),
+            text_direction: TextDirection::Vertical,
+        };
+
+        // Very large page index should not panic or overflow filename formatting
+        let page_idx = 999_999;
+        let content =
+            gen.build_page_content(page_idx, &ocr, &PageClassification::FullPageImage, &[]);
+        assert_eq!(content.page_index, page_idx);
+
+        // Verify it can be saved and the file is created
+        let md = gen.generate_page_markdown(&content).unwrap();
+        let saved_path = gen.save_page_markdown(page_idx, &md).unwrap();
+        // page_{:03} formatting with 999999+1=1000000 produces "page_1000000.md"
+        assert!(
+            saved_path.to_string_lossy().contains("page_"),
+            "Save path should contain page_ prefix"
+        );
     }
 
     #[test]

@@ -476,8 +476,18 @@ mod tests {
             region_type: RegionType::Figure,
         };
         let cropped = FigureDetector::crop_figure(&img, &region);
-        assert!(cropped.width() > 0);
-        assert!(cropped.height() > 0);
+        // 3% margin on 200px = 6px each side, so expected ~212px
+        // The crop should be larger than the region (due to margin) but within image bounds
+        assert!(
+            cropped.width() >= 200 && cropped.width() <= 212,
+            "Cropped width should be ~200+margin, got {}",
+            cropped.width()
+        );
+        assert!(
+            cropped.height() >= 200 && cropped.height() <= 212,
+            "Cropped height should be ~200+margin, got {}",
+            cropped.height()
+        );
     }
 
     #[test]
@@ -553,11 +563,21 @@ mod tests {
         match result {
             PageClassification::Mixed { figures } => {
                 assert!(!figures.is_empty(), "Should detect at least one figure");
+                // Verify figure region is in the expected area (dark block at y=800..1200, x=200..600)
+                let fig = &figures[0];
+                assert!(
+                    fig.bbox.1 >= 700,
+                    "Figure Y should be near or within the drawn dark block (y >= 700), got {}",
+                    fig.bbox.1
+                );
+                assert!(fig.area > 0, "Figure area should be non-zero");
             }
-            PageClassification::TextOnly => {
-                // Acceptable if figure detection didn't find contiguous area
-            }
-            other => panic!("Expected Mixed or TextOnly, got {:?}", other),
+            other => panic!(
+                "Expected Mixed with detected figures, got {:?}. \
+                 The 400x400 dark block (10.7% of page) should be detected as a figure \
+                 with text covering only 15% (between fullpage 5% and textonly 80%).",
+                other
+            ),
         }
     }
 
@@ -660,9 +680,8 @@ mod tests {
     #[test]
     fn test_crop_to_content_edge_content() {
         use image::{Rgb, RgbImage};
-        // Content at image edges
+        // Content at image edges (top-left corner: 5x5 black block)
         let mut raw = RgbImage::from_pixel(100, 100, Rgb([255, 255, 255]));
-        // Draw content at top-left corner
         for y in 0..5 {
             for x in 0..5 {
                 raw.put_pixel(x, y, Rgb([0, 0, 0]));
@@ -670,9 +689,29 @@ mod tests {
         }
         let img = DynamicImage::ImageRgb8(raw);
         let cropped = FigureDetector::crop_to_content(&img, 240);
-        // Should not panic, and result should be smaller than original
-        assert!(cropped.width() <= 100);
-        assert!(cropped.height() <= 100);
+        // Content bounds = (0,0,5,5), 1% padding of 5px = 1px
+        // crop_x = 0.saturating_sub(1) = 0, crop_w = min(5+2, 100-0) = 7
+        // crop_y = 0.saturating_sub(1) = 0, crop_h = min(5+2, 100-0) = 7
+        assert!(
+            cropped.width() <= 10,
+            "Cropped width should be close to content size (5px + padding), got {}",
+            cropped.width()
+        );
+        assert!(
+            cropped.height() <= 10,
+            "Cropped height should be close to content size (5px + padding), got {}",
+            cropped.height()
+        );
+        assert!(
+            cropped.width() >= 5,
+            "Cropped width must be >= content size 5, got {}",
+            cropped.width()
+        );
+        assert!(
+            cropped.height() >= 5,
+            "Cropped height must be >= content size 5, got {}",
+            cropped.height()
+        );
     }
 
     #[test]
@@ -712,6 +751,78 @@ mod tests {
         let img2 = DynamicImage::ImageRgb8(raw2);
         let bounds = FigureDetector::find_content_bounds(&img2, 240).unwrap();
         assert_eq!(bounds, (50, 50, 1, 1));
+    }
+
+    #[test]
+    fn test_figure_detect_options_extreme_min_area_fraction_one() {
+        // min_area_fraction = 1.0 means figure must be >= 100% of page area — nothing passes
+        use image::{Rgb, RgbImage};
+        let mut raw = RgbImage::from_pixel(100, 100, Rgb([255, 255, 255]));
+        for y in 0..100 {
+            for x in 0..100 {
+                raw.put_pixel(x, y, Rgb([0, 0, 0]));
+            }
+        }
+        let img = DynamicImage::ImageRgb8(raw);
+
+        let blocks = vec![TextBlock {
+            text: "テスト".into(),
+            bbox: (0, 0, 30, 30), // 9% text coverage — between fullpage and textonly thresholds
+            confidence: 0.9,
+            direction: TextDirection::Horizontal,
+            font_size: Some(12.0),
+        }];
+        let ocr = make_ocr_result(blocks);
+        let opts = FigureDetectOptions {
+            min_area_fraction: 1.0,
+            ..FigureDetectOptions::default()
+        };
+
+        let result = FigureDetector::classify_page(&img, &ocr, 1, &opts);
+        // With min_area_fraction=1.0, no figure can be large enough → TextOnly
+        assert!(
+            matches!(result, PageClassification::TextOnly),
+            "With min_area_fraction=1.0 all figures should be filtered out, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_figure_detect_options_extreme_max_aspect_ratio_zero() {
+        // max_aspect_ratio = 0.0 means no aspect ratio can pass the filter
+        use image::{Rgb, RgbImage};
+        let mut raw = RgbImage::from_pixel(1000, 1500, Rgb([255, 255, 255]));
+        // Draw a large square figure
+        for y in 500..1000 {
+            for x in 200..700 {
+                raw.put_pixel(x, y, Rgb([0, 0, 0]));
+            }
+        }
+        let img = DynamicImage::ImageRgb8(raw);
+
+        // Text block must put coverage above fullpage_text_threshold (5%) but below textonly (80%)
+        // Page area = 1000*1500 = 1,500,000. Need > 75,000 px^2 of text.
+        // 900 * 250 = 225,000 → 15% coverage (well between 5% and 80%)
+        let blocks = vec![TextBlock {
+            text: "テスト".into(),
+            bbox: (50, 50, 900, 250),
+            confidence: 0.9,
+            direction: TextDirection::Horizontal,
+            font_size: Some(12.0),
+        }];
+        let ocr = make_ocr_result(blocks);
+        let opts = FigureDetectOptions {
+            max_aspect_ratio: 0.0,
+            ..FigureDetectOptions::default()
+        };
+
+        let result = FigureDetector::classify_page(&img, &ocr, 1, &opts);
+        // Any shape with w>0 and h>0 has aspect_ratio >= 1.0 which exceeds 0.0 → all filtered
+        assert!(
+            matches!(result, PageClassification::TextOnly),
+            "With max_aspect_ratio=0.0 all figures should be filtered out, got {:?}",
+            result
+        );
     }
 
     #[test]

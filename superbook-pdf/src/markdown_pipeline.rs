@@ -677,6 +677,18 @@ mod tests {
         assert!(result.text_blocks.is_empty());
         assert_eq!(result.confidence, 0.0);
         assert_eq!(result.input_path, PathBuf::from("test.png"));
+        // Verify text_direction is explicitly set to Vertical (the fallback default for Japanese books)
+        assert_eq!(
+            result.text_direction,
+            crate::TextDirection::Vertical,
+            "empty_ocr_result should default to Vertical for Japanese book scanning"
+        );
+        // Verify processing_time is zero
+        assert_eq!(
+            result.processing_time,
+            std::time::Duration::from_secs(0),
+            "empty_ocr_result should have zero processing time"
+        );
     }
 
     #[test]
@@ -741,6 +753,87 @@ mod tests {
         } else {
             panic!("Expected Markdown command");
         }
+    }
+
+    #[test]
+    fn test_progress_state_load_corrupted_json() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let path = tmpdir.path().join("corrupted.json");
+
+        // Write completely invalid JSON
+        std::fs::write(&path, "this is not json at all {{{").unwrap();
+        let result = ProgressState::load(&path);
+        assert!(
+            result.is_err(),
+            "Loading corrupted JSON should return Err, not silently succeed"
+        );
+
+        // Verify the error is a JSON parse error, not some other error type
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, MarkdownPipelineError::Json(_)),
+            "Expected Json error variant, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_progress_state_load_partial_json() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let path = tmpdir.path().join("partial.json");
+
+        // Write valid JSON but missing required fields
+        std::fs::write(&path, r#"{"total_pages": 5}"#).unwrap();
+        let result = ProgressState::load(&path);
+        assert!(
+            result.is_err(),
+            "Loading JSON with missing fields should return Err"
+        );
+    }
+
+    #[test]
+    fn test_progress_state_load_nonexistent_file() {
+        let result = ProgressState::load(Path::new("/nonexistent/path/to/file.json"));
+        assert!(
+            result.is_err(),
+            "Loading from nonexistent file should return Err"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, MarkdownPipelineError::Io(_)),
+            "Expected Io error variant for missing file, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_progress_state_very_large_page_index() {
+        let mut state = ProgressState::new(10, Path::new("test.pdf"), "test");
+        // Mark a page index far beyond total_pages — should not panic
+        state.mark_processed(usize::MAX);
+        assert!(state.is_processed(usize::MAX));
+        assert_eq!(state.processed_pages.len(), 1);
+
+        // Verify it can be serialized and deserialized
+        let tmpdir = tempfile::tempdir().unwrap();
+        let path = tmpdir.path().join("large_idx.json");
+        state.save(&path).unwrap();
+        let loaded = ProgressState::load(&path).unwrap();
+        assert!(loaded.is_processed(usize::MAX));
+    }
+
+    #[test]
+    fn test_progress_state_empty_title() {
+        let state = ProgressState::new(5, Path::new(""), "");
+        assert_eq!(state.title, "");
+        assert_eq!(state.input_pdf, PathBuf::from(""));
+
+        // Verify serialization roundtrip with empty strings
+        let tmpdir = tempfile::tempdir().unwrap();
+        let path = tmpdir.path().join("empty_title.json");
+        state.save(&path).unwrap();
+        let loaded = ProgressState::load(&path).unwrap();
+        assert_eq!(loaded.title, "");
     }
 
     #[test]
