@@ -879,4 +879,84 @@ mod tests {
         assert!(content.contains("Page 3 content"));
         // Page 2 was skipped — no error
     }
+
+    #[test]
+    fn test_sanitize_filename_empty() {
+        let result = sanitize_filename("");
+        assert_eq!(result, "", "Empty string should remain empty");
+    }
+
+    #[test]
+    fn test_sanitize_filename_all_special() {
+        let result = sanitize_filename("/:*?\"<>|\\");
+        assert!(
+            !result.contains('/'),
+            "Should not contain forward slash: {}",
+            result
+        );
+        assert!(
+            !result.contains('\\'),
+            "Should not contain backslash: {}",
+            result
+        );
+        assert!(
+            !result.contains(':'),
+            "Should not contain colon: {}",
+            result
+        );
+        // All chars should be replaced with '_'
+        assert_eq!(result, "_________");
+    }
+
+    #[test]
+    fn test_build_page_content_empty_ocr() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let gen = MarkdownGenerator::new(tmpdir.path()).unwrap();
+
+        let ocr = OcrResult {
+            input_path: "empty.png".into(),
+            text_blocks: vec![],
+            confidence: 0.0,
+            processing_time: std::time::Duration::from_secs(0),
+            text_direction: TextDirection::Vertical,
+        };
+
+        let content = gen.build_page_content(
+            0,
+            &ocr,
+            &crate::figure_detect::PageClassification::TextOnly,
+            &[],
+        );
+
+        // Empty OCR should still produce a valid PageContent
+        // The last element should be PageBreak
+        assert!(
+            !content.elements.is_empty(),
+            "Even empty OCR should produce at least a page break"
+        );
+        assert!(
+            matches!(content.elements.last().unwrap(), ContentElement::PageBreak),
+            "Last element should be PageBreak"
+        );
+    }
+
+    #[test]
+    fn test_sort_text_blocks_empty() {
+        let sorted = MarkdownGenerator::sort_text_blocks(&[], &TextDirection::Horizontal);
+        assert!(sorted.is_empty(), "Empty input should produce empty output");
+    }
+
+    #[test]
+    fn test_sort_text_blocks_single_block() {
+        let blocks = vec![TextBlock {
+            text: "唯一".into(),
+            bbox: (10, 20, 100, 50),
+            confidence: 0.95,
+            direction: TextDirection::Horizontal,
+            font_size: Some(12.0),
+        }];
+        let sorted = MarkdownGenerator::sort_text_blocks(&blocks, &TextDirection::Horizontal);
+        assert_eq!(sorted.len(), 1);
+        assert_eq!(sorted[0].text, "唯一");
+    }
 }

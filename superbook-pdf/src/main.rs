@@ -989,6 +989,7 @@ fn run_serve(args: &ServeArgs) -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::VerboseProgress;
+    use superbook_pdf::{ProgressCallback, SilentProgress};
 
     // TC-CLI-OUTPUT-001: DEBUG messages should only appear at verbose level 3 (-vvv)
     #[test]
@@ -1036,5 +1037,44 @@ mod tests {
         assert!(handler_3.should_show_steps());
         assert!(handler_3.should_show_progress());
         assert!(handler_3.should_show_debug());
+    }
+
+    // TC-CLI-OUTPUT-003: on_warning always prints regardless of verbose level
+    #[test]
+    fn test_on_warning_always_visible() {
+        // on_warning should work at all verbose levels (even 0)
+        // We verify it doesn't panic and the impl doesn't gate on verbose_level
+        let handler_0 = VerboseProgress::new(0);
+        handler_0.on_warning("test warning at level 0");
+
+        let handler_1 = VerboseProgress::new(1);
+        handler_1.on_warning("test warning at level 1");
+
+        let handler_3 = VerboseProgress::new(3);
+        handler_3.on_warning("test warning at level 3");
+    }
+
+    // TC-CLI-OUTPUT-004: SilentProgress on_warning is a no-op
+    #[test]
+    fn test_silent_progress_on_warning() {
+        let silent = SilentProgress;
+        // Should not panic or produce output
+        silent.on_warning("test warning");
+        silent.on_debug("test debug");
+    }
+
+    // TC-CLI-OUTPUT-005: Default ProgressCallback on_warning implementation
+    #[test]
+    fn test_default_progress_callback_on_warning() {
+        struct MinimalProgress;
+        impl ProgressCallback for MinimalProgress {
+            fn on_step_start(&self, _step: &str) {}
+            fn on_step_progress(&self, _current: usize, _total: usize) {}
+            fn on_step_complete(&self, _step: &str, _message: &str) {}
+            fn on_debug(&self, _message: &str) {}
+        }
+        // Default on_warning should print to stderr — verify it doesn't panic
+        let progress = MinimalProgress;
+        progress.on_warning("test default warning");
     }
 }

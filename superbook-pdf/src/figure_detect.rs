@@ -851,4 +851,63 @@ mod tests {
         // Extreme aspect ratio line should be filtered — likely TextOnly
         assert!(matches!(result, PageClassification::TextOnly));
     }
+
+    #[test]
+    fn test_figure_detect_options_extreme_sensitivity_zero() {
+        // min_area_fraction = 0 means even tiny regions qualify as figures
+        let opts = FigureDetectOptions {
+            min_area_fraction: 0.0,
+            max_aspect_ratio: 100.0,
+            ..Default::default()
+        };
+        // Should not panic
+        assert_eq!(opts.min_area_fraction, 0.0);
+        assert_eq!(opts.max_aspect_ratio, 100.0);
+    }
+
+    #[test]
+    fn test_figure_detect_options_extreme_sensitivity_one() {
+        // min_area_fraction = 1.0 means figure must cover 100% of page
+        let opts = FigureDetectOptions {
+            min_area_fraction: 1.0,
+            ..Default::default()
+        };
+        // Even a mostly-dark image should not qualify as a figure
+        use image::{Rgb, RgbImage};
+        let raw = RgbImage::from_pixel(100, 100, Rgb([0, 0, 0]));
+        let img = DynamicImage::ImageRgb8(raw);
+        let ocr = make_ocr_result(vec![]);
+        let result = FigureDetector::classify_page(&img, &ocr, 1, &opts);
+        // With 100% threshold, even a fully dark image shouldn't be "mixed" with figures
+        // because the dark area is the full image itself — it's a FullPageImage
+        assert!(
+            !matches!(result, PageClassification::Mixed { .. }),
+            "With min_area_fraction=1.0, no sub-region should qualify as a figure"
+        );
+    }
+
+    #[test]
+    fn test_figure_detect_options_zero_dilation() {
+        let opts = FigureDetectOptions {
+            dilation_size: 0,
+            ..Default::default()
+        };
+        use image::{Rgb, RgbImage};
+        let raw = RgbImage::from_pixel(100, 100, Rgb([255, 255, 255]));
+        let img = DynamicImage::ImageRgb8(raw);
+        let ocr = make_ocr_result(vec![]);
+        // Should not panic with dilation_size=0
+        let _result = FigureDetector::classify_page(&img, &ocr, 1, &opts);
+    }
+
+    #[test]
+    fn test_classify_page_1x1_image() {
+        use image::{Rgb, RgbImage};
+        let raw = RgbImage::from_pixel(1, 1, Rgb([128, 128, 128]));
+        let img = DynamicImage::ImageRgb8(raw);
+        let ocr = make_ocr_result(vec![]);
+        let opts = FigureDetectOptions::default();
+        // Should not panic on minimal image
+        let _result = FigureDetector::classify_page(&img, &ocr, 1, &opts);
+    }
 }

@@ -266,7 +266,7 @@ impl MarkdownPipeline {
         let yomitoku = match crate::SubprocessBridge::new(bridge_config) {
             Ok(bridge) => Some(crate::YomiToku::new(bridge)),
             Err(e) => {
-                progress.on_debug(&format!(
+                progress.on_warning(&format!(
                     "YomiToku利用不可 (venvが見つからないか初期化失敗): {} — 図検出のみで続行します",
                     e
                 ));
@@ -543,7 +543,7 @@ impl MarkdownPipeline {
         let bridge = match crate::SubprocessBridge::new(bridge_config) {
             Ok(b) => b,
             Err(e) => {
-                progress.on_debug(&format!("RealESRGAN利用不可: {}", e));
+                progress.on_warning(&format!("RealESRGAN利用不可: {}", e));
                 return Ok(images.to_vec());
             }
         };
@@ -565,7 +565,7 @@ impl MarkdownPipeline {
                     .collect())
             }
             Err(e) => {
-                progress.on_debug(&format!("超解像失敗: {}", e));
+                progress.on_warning(&format!("超解像失敗: {}", e));
                 Ok(images.to_vec())
             }
         }
@@ -855,6 +855,50 @@ mod tests {
             let pipeline = MarkdownPipeline::from_args(&args);
             // clamped to 1.0 → min_area_fraction = 0.0
             assert!(pipeline.figure_options.min_area_fraction.abs() < f32::EPSILON);
+        } else {
+            panic!("Expected Markdown command");
+        }
+    }
+
+    #[test]
+    fn test_progress_state_mark_idempotent() {
+        let mut state = ProgressState::new(5, Path::new("test.pdf"), "test");
+        state.mark_processed(2);
+        state.mark_processed(2); // duplicate
+        let completed: Vec<_> = (0..5).filter(|i| state.is_processed(*i)).collect();
+        // Page 2 should appear exactly once in the completed set
+        assert_eq!(
+            completed.iter().filter(|&&p| p == 2).count(),
+            1,
+            "Duplicate mark should be idempotent"
+        );
+    }
+
+    #[test]
+    fn test_empty_ocr_result_processing_time_zero() {
+        let result = MarkdownPipeline::empty_ocr_result(Path::new("zero.png"));
+        assert_eq!(
+            result.processing_time,
+            std::time::Duration::ZERO,
+            "Empty OCR processing time should be exactly zero"
+        );
+    }
+
+    #[test]
+    fn test_markdown_pipeline_default_config() {
+        use crate::cli::Cli;
+        use clap::Parser;
+
+        let cli = Cli::try_parse_from(["superbook-pdf", "markdown", "input.pdf"]).unwrap();
+        if let crate::cli::Commands::Markdown(args) = cli.command {
+            let pipeline = MarkdownPipeline::from_args(&args);
+            // Verify defaults
+            assert!(pipeline.config.deskew, "deskew should be true by default");
+            assert!(
+                !pipeline.config.upscale,
+                "upscale should be false by default"
+            );
+            assert_eq!(pipeline.config.dpi, 300, "DPI should default to 300");
         } else {
             panic!("Expected Markdown command");
         }
