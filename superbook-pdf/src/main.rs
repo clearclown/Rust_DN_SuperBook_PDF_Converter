@@ -407,8 +407,7 @@ fn create_cli_overrides(args: &ConvertArgs) -> CliOverrides {
     // Deblur: override if explicitly enabled
     if args.deblur {
         overrides.deblur = Some(true);
-        overrides.deblur_algorithm =
-            Some(format!("{:?}", args.deblur_algorithm).to_lowercase());
+        overrides.deblur_algorithm = Some(format!("{:?}", args.deblur_algorithm).to_lowercase());
     }
 
     overrides
@@ -473,10 +472,7 @@ fn print_execution_plan(
         println!("  5. OCR: DISABLED");
     }
     if config.deblur {
-        println!(
-            "  5a. Deblur ({}): ENABLED",
-            config.deblur_algorithm
-        );
+        println!("  5a. Deblur ({}): ENABLED", config.deblur_algorithm);
     }
     if config.internal_resolution {
         println!("  6. Internal Resolution Normalization (4960x7016): ENABLED");
