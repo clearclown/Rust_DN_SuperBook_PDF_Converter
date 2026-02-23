@@ -140,8 +140,7 @@ fn stage2_similarity_match(
                 let is_better = match &best {
                     None => true,
                     Some((_, best_sim, best_dist)) => {
-                        similarity > *best_sim
-                            || (similarity == *best_sim && distance < *best_dist)
+                        similarity > *best_sim || (similarity == *best_sim && distance < *best_dist)
                     }
                 };
                 if is_better {
@@ -827,9 +826,11 @@ mod tests {
     #[test]
     fn test_fallback_stage3_ocr_success() {
         // No exact or similar match, but OCR success
-        let candidates = vec![
-            PageNumberCandidate::new("xyz".to_string(), Rectangle::new(500, 950, 50, 30), 0.80),
-        ];
+        let candidates = vec![PageNumberCandidate::new(
+            "xyz".to_string(),
+            Rectangle::new(500, 950, 50, 30),
+            0.80,
+        )];
         let region = Rectangle::new(0, 0, 100, 100); // Far from candidate
         let result = find_page_number_with_fallback(&candidates, 42, &region);
 
@@ -841,11 +842,8 @@ mod tests {
     #[test]
     fn test_fallback_stage4_fallback() {
         // Only empty text candidates (no OCR success)
-        let mut candidate = PageNumberCandidate::new(
-            "".to_string(),
-            Rectangle::new(500, 950, 50, 30),
-            0.10,
-        );
+        let mut candidate =
+            PageNumberCandidate::new("".to_string(), Rectangle::new(500, 950, 50, 30), 0.10);
         candidate.ocr_success = false; // Force OCR failure
         let candidates = vec![candidate];
         let region = Rectangle::new(0, 0, 100, 100);
@@ -902,9 +900,12 @@ mod tests {
 
     #[test]
     fn test_fallback_stats() {
-        let page1 = PageNumberCandidate::new("1".to_string(), Rectangle::new(500, 950, 50, 30), 0.95);
-        let page2 = PageNumberCandidate::new("2X".to_string(), Rectangle::new(500, 950, 50, 30), 0.80);
-        let page3 = PageNumberCandidate::new("abc".to_string(), Rectangle::new(500, 950, 50, 30), 0.70);
+        let page1 =
+            PageNumberCandidate::new("1".to_string(), Rectangle::new(500, 950, 50, 30), 0.95);
+        let page2 =
+            PageNumberCandidate::new("2X".to_string(), Rectangle::new(500, 950, 50, 30), 0.80);
+        let page3 =
+            PageNumberCandidate::new("abc".to_string(), Rectangle::new(500, 950, 50, 30), 0.70);
 
         let all_candidates = vec![vec![page1], vec![page2], vec![page3], vec![]];
         let regions = vec![
@@ -919,7 +920,7 @@ mod tests {
 
         assert_eq!(stats.total, 4);
         assert_eq!(stats.stage1_exact, 1); // "1" matched exactly
-        assert_eq!(stats.not_found, 1);    // Empty candidates
+        assert_eq!(stats.not_found, 1); // Empty candidates
         assert!(stats.detection_rate() > 0.5);
     }
 

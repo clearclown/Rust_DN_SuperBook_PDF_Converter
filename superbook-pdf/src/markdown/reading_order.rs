@@ -3,9 +3,9 @@
 //! Provides functionality to detect and sort text elements
 //! in the correct reading order (vertical or horizontal).
 
-use super::types::TextBlock;
 #[cfg(test)]
 use super::types::BoundingBox;
+use super::types::TextBlock;
 
 // ============================================================
 // Types
@@ -236,9 +236,9 @@ mod tests {
     #[test]
     fn test_sort_vertical() {
         let mut blocks = vec![
-            make_block("A", 0, 0, 20, 50),   // Left column
-            make_block("C", 100, 0, 20, 50), // Right column, top
-            make_block("B", 0, 60, 20, 50),  // Left column, bottom
+            make_block("A", 0, 0, 20, 50),    // Left column
+            make_block("C", 100, 0, 20, 50),  // Right column, top
+            make_block("B", 0, 60, 20, 50),   // Left column, bottom
             make_block("D", 100, 60, 20, 50), // Right column, bottom
         ];
 
@@ -278,8 +278,8 @@ mod tests {
     fn test_group_into_lines() {
         let blocks = vec![
             make_block("A1", 0, 0, 50, 20),
-            make_block("A2", 60, 5, 50, 20),  // Same line
-            make_block("B1", 0, 50, 50, 20),  // New line
+            make_block("A2", 60, 5, 50, 20), // Same line
+            make_block("B1", 0, 50, 50, 20), // New line
         ];
 
         let groups = ReadingOrderSorter::group_into_lines(&blocks, TextDirection::Horizontal, 15);
@@ -293,8 +293,10 @@ mod tests {
     fn test_reading_order_index() {
         let block = TextBlock::new("Test".to_string(), BoundingBox::new(100, 50, 50, 20));
 
-        let h_idx = ReadingOrderSorter::reading_order_index(&block, 800, 600, TextDirection::Horizontal);
-        let v_idx = ReadingOrderSorter::reading_order_index(&block, 800, 600, TextDirection::Vertical);
+        let h_idx =
+            ReadingOrderSorter::reading_order_index(&block, 800, 600, TextDirection::Horizontal);
+        let v_idx =
+            ReadingOrderSorter::reading_order_index(&block, 800, 600, TextDirection::Vertical);
 
         // Horizontal: 50 * 800 + 100 = 40100
         assert_eq!(h_idx, 40100);

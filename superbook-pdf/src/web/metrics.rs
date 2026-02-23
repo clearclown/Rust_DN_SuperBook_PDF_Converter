@@ -123,7 +123,8 @@ impl MetricsCollector {
     pub fn record_job_completed(&self, duration_ms: u64, pages: u64) {
         self.completed_jobs.fetch_add(1, Ordering::Relaxed);
         self.active_jobs.fetch_sub(1, Ordering::Relaxed);
-        self.total_processing_ms.fetch_add(duration_ms, Ordering::Relaxed);
+        self.total_processing_ms
+            .fetch_add(duration_ms, Ordering::Relaxed);
         self.total_pages.fetch_add(pages, Ordering::Relaxed);
     }
 
@@ -191,7 +192,12 @@ impl MetricsCollector {
     }
 
     /// Format metrics in Prometheus format
-    pub fn format_prometheus(&self, queued_jobs: u64, websocket_connections: usize, worker_count: usize) -> String {
+    pub fn format_prometheus(
+        &self,
+        queued_jobs: u64,
+        websocket_connections: usize,
+        worker_count: usize,
+    ) -> String {
         let stats = self.get_job_statistics(queued_jobs);
         let batch_stats = self.get_batch_statistics();
         let uptime = self.get_uptime();
@@ -201,26 +207,50 @@ impl MetricsCollector {
         // Jobs counter
         output.push_str("# HELP superbook_jobs_total Total number of jobs by status\n");
         output.push_str("# TYPE superbook_jobs_total counter\n");
-        output.push_str(&format!("superbook_jobs_total{{status=\"completed\"}} {}\n", stats.completed_jobs));
-        output.push_str(&format!("superbook_jobs_total{{status=\"failed\"}} {}\n", stats.failed_jobs));
-        output.push_str(&format!("superbook_jobs_total{{status=\"processing\"}} {}\n", stats.active_jobs));
-        output.push_str(&format!("superbook_jobs_total{{status=\"queued\"}} {}\n", stats.queued_jobs));
+        output.push_str(&format!(
+            "superbook_jobs_total{{status=\"completed\"}} {}\n",
+            stats.completed_jobs
+        ));
+        output.push_str(&format!(
+            "superbook_jobs_total{{status=\"failed\"}} {}\n",
+            stats.failed_jobs
+        ));
+        output.push_str(&format!(
+            "superbook_jobs_total{{status=\"processing\"}} {}\n",
+            stats.active_jobs
+        ));
+        output.push_str(&format!(
+            "superbook_jobs_total{{status=\"queued\"}} {}\n",
+            stats.queued_jobs
+        ));
 
         // Pages processed
         output.push_str("\n# HELP superbook_pages_processed_total Total pages processed\n");
         output.push_str("# TYPE superbook_pages_processed_total counter\n");
-        output.push_str(&format!("superbook_pages_processed_total {}\n", stats.total_pages_processed));
+        output.push_str(&format!(
+            "superbook_pages_processed_total {}\n",
+            stats.total_pages_processed
+        ));
 
         // Average processing time
         output.push_str("\n# HELP superbook_avg_processing_seconds Average job processing time\n");
         output.push_str("# TYPE superbook_avg_processing_seconds gauge\n");
-        output.push_str(&format!("superbook_avg_processing_seconds {:.2}\n", stats.avg_processing_time));
+        output.push_str(&format!(
+            "superbook_avg_processing_seconds {:.2}\n",
+            stats.avg_processing_time
+        ));
 
         // Batches
         output.push_str("\n# HELP superbook_batches_total Total batches by status\n");
         output.push_str("# TYPE superbook_batches_total counter\n");
-        output.push_str(&format!("superbook_batches_total{{status=\"completed\"}} {}\n", batch_stats.completed));
-        output.push_str(&format!("superbook_batches_total{{status=\"processing\"}} {}\n", batch_stats.processing));
+        output.push_str(&format!(
+            "superbook_batches_total{{status=\"completed\"}} {}\n",
+            batch_stats.completed
+        ));
+        output.push_str(&format!(
+            "superbook_batches_total{{status=\"processing\"}} {}\n",
+            batch_stats.processing
+        ));
 
         // Uptime
         output.push_str("\n# HELP superbook_uptime_seconds Server uptime in seconds\n");
@@ -230,7 +260,10 @@ impl MetricsCollector {
         // WebSocket connections
         output.push_str("\n# HELP superbook_websocket_connections Active WebSocket connections\n");
         output.push_str("# TYPE superbook_websocket_connections gauge\n");
-        output.push_str(&format!("superbook_websocket_connections {}\n", websocket_connections));
+        output.push_str(&format!(
+            "superbook_websocket_connections {}\n",
+            websocket_connections
+        ));
 
         // Workers
         output.push_str("\n# HELP superbook_workers Worker count\n");

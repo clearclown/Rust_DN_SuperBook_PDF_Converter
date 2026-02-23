@@ -110,7 +110,6 @@ impl MarkdownPipeline {
         let config = PipelineConfig {
             dpi: args.dpi,
             deskew: args.effective_deskew(),
-            margin_trim: 0.5,
             upscale: args.upscale,
             gpu: args.gpu,
             ocr: true, // Always enabled for Markdown
@@ -209,6 +208,17 @@ impl MarkdownPipeline {
             progress.on_step_complete("AI超解像", "完了");
         }
 
+        // Step 3.5: 180-degree rotation detection
+        if self.config.deskew {
+            progress.on_step_start("ページ回転検出中...");
+            let rotated_dir = work_dir.join("rotation_corrected");
+            std::fs::create_dir_all(&rotated_dir)?;
+
+            let corrected = self.step_rotation_detect(&rotated_dir, &current_images, progress)?;
+            current_images = corrected;
+            progress.on_step_complete("回転検出", "完了");
+        }
+
         // Step 4: Deskew
         if self.config.deskew {
             progress.on_step_start("傾き補正中...");
@@ -251,19 +261,20 @@ impl MarkdownPipeline {
         let md_gen = MarkdownGenerator::new(output_dir)?;
 
         // Step 5-9: OCR + Figure Detection + Markdown Generation (per page)
-        progress.on_step_start(&format!("OCR・図検出・Markdown生成 ({}ページ)...", page_count));
+        progress.on_step_start(&format!(
+            "OCR・図検出・Markdown生成 ({}ページ)...",
+            page_count
+        ));
 
         // Setup YomiToku (graceful fallback if venv unavailable)
-        let venv_path = std::env::var("SUPERBOOK_VENV")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("./ai_bridge/ai_venv"));
+        let venv_path = crate::resolve_venv_path();
         let bridge_config = crate::AiBridgeConfig::builder()
             .venv_path(venv_path.clone())
             .build();
         let yomitoku = match crate::SubprocessBridge::new(bridge_config) {
             Ok(bridge) => Some(crate::YomiToku::new(bridge)),
             Err(e) => {
-                progress.on_debug(&format!(
+                progress.on_warning(&format!(
                     "YomiToku利用不可 (venvが見つからないか初期化失敗): {} — 図検出のみで続行します",
                     e
                 ));
@@ -314,12 +325,8 @@ impl MarkdownPipeline {
                 FigureDetector::classify_page(&image, &ocr_result, page_idx, &self.figure_options);
 
             // Save figure/cover/full-page images
-            let figure_images = self.save_page_images(
-                &image,
-                page_idx,
-                &classification,
-                md_gen.images_dir(),
-            )?;
+            let figure_images =
+                self.save_page_images(&image, page_idx, &classification, md_gen.images_dir())?;
             images_count += figure_images.len();
 
             // Build page content
@@ -493,6 +500,48 @@ impl MarkdownPipeline {
         Ok(output_paths)
     }
 
+    /// 180-degree rotation detection and correction step
+    fn step_rotation_detect<P: ProgressCallback>(
+        &self,
+        output_dir: &Path,
+        images: &[PathBuf],
+        progress: &P,
+    ) -> Result<Vec<PathBuf>, MarkdownPipelineError> {
+        let mut output_paths = Vec::with_capacity(images.len());
+        let mut corrected = 0usize;
+
+        for (idx, img_path) in images.iter().enumerate() {
+            let name = img_path
+                .file_name()
+                .map(|n| n.to_os_string())
+                .unwrap_or_else(|| format!("page_{:04}.png", idx).into());
+            let output_path = output_dir.join(&name);
+
+            match crate::ImageProcDeskewer::detect_upside_down(img_path) {
+                Ok(true) => {
+                    match crate::ImageProcDeskewer::correct_upside_down(img_path, &output_path) {
+                        Ok(()) => {
+                            corrected += 1;
+                            progress.on_debug(&format!("page {} を180度回転補正", idx));
+                        }
+                        Err(_) => {
+                            std::fs::copy(img_path, &output_path)?;
+                        }
+                    }
+                }
+                _ => {
+                    std::fs::copy(img_path, &output_path)?;
+                }
+            }
+            output_paths.push(output_path);
+        }
+
+        if corrected > 0 {
+            progress.on_debug(&format!("{}ページの180度回転を補正", corrected));
+        }
+        Ok(output_paths)
+    }
+
     /// Deskew step (reuses logic from pipeline)
     fn step_deskew<P: ProgressCallback>(
         &self,
@@ -533,9 +582,7 @@ impl MarkdownPipeline {
         images: &[PathBuf],
         progress: &P,
     ) -> Result<Vec<PathBuf>, MarkdownPipelineError> {
-        let venv_path = std::env::var("SUPERBOOK_VENV")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("./ai_bridge/ai_venv"));
+        let venv_path = crate::resolve_venv_path();
 
         let bridge_config = crate::AiBridgeConfig::builder()
             .venv_path(venv_path)
@@ -544,7 +591,7 @@ impl MarkdownPipeline {
         let bridge = match crate::SubprocessBridge::new(bridge_config) {
             Ok(b) => b,
             Err(e) => {
-                progress.on_debug(&format!("RealESRGAN利用不可: {}", e));
+                progress.on_warning(&format!("RealESRGAN利用不可: {}", e));
                 return Ok(images.to_vec());
             }
         };
@@ -558,10 +605,7 @@ impl MarkdownPipeline {
 
         match esrgan.upscale_batch(images, output_dir, &options, None) {
             Ok(result) => {
-                progress.on_step_complete(
-                    "超解像",
-                    &format!("{}画像", result.successful.len()),
-                );
+                progress.on_step_complete("超解像", &format!("{}画像", result.successful.len()));
                 Ok(result
                     .successful
                     .iter()
@@ -569,7 +613,7 @@ impl MarkdownPipeline {
                     .collect())
             }
             Err(e) => {
-                progress.on_debug(&format!("超解像失敗: {}", e));
+                progress.on_warning(&format!("超解像失敗: {}", e));
                 Ok(images.to_vec())
             }
         }
@@ -619,8 +663,8 @@ mod tests {
 
     #[test]
     fn test_markdown_pipeline_from_args() {
-        use clap::Parser;
         use crate::cli::Cli;
+        use clap::Parser;
 
         let cli = Cli::try_parse_from([
             "superbook-pdf",
@@ -637,6 +681,272 @@ mod tests {
             assert_eq!(pipeline.config.dpi, 300);
             assert!(pipeline.config.gpu);
             assert!(pipeline.config.ocr);
+        } else {
+            panic!("Expected Markdown command");
+        }
+    }
+
+    // ============ Additional Tests (Issue #41+ quality assurance) ============
+
+    #[test]
+    fn test_progress_state_duplicate_mark() {
+        let mut state = ProgressState::new(5, Path::new("test.pdf"), "test");
+        state.mark_processed(2);
+        state.mark_processed(2);
+        state.mark_processed(2);
+        assert_eq!(state.processed_pages.len(), 1);
+        assert!(state.is_processed(2));
+    }
+
+    #[test]
+    fn test_progress_state_sorted_order() {
+        let mut state = ProgressState::new(10, Path::new("test.pdf"), "test");
+        state.mark_processed(5);
+        state.mark_processed(1);
+        state.mark_processed(8);
+        state.mark_processed(3);
+        assert_eq!(state.processed_pages, vec![1, 3, 5, 8]);
+    }
+
+    #[test]
+    fn test_progress_state_boundary_pages() {
+        let mut state = ProgressState::new(100, Path::new("test.pdf"), "test");
+        state.mark_processed(0);
+        state.mark_processed(99);
+        assert!(state.is_processed(0));
+        assert!(state.is_processed(99));
+        assert!(!state.is_processed(50));
+        assert!(!state.is_processed(100)); // out of range but no panic
+    }
+
+    #[test]
+    fn test_empty_ocr_result_structure() {
+        let result = MarkdownPipeline::empty_ocr_result(Path::new("test.png"));
+        assert!(result.text_blocks.is_empty());
+        assert_eq!(result.confidence, 0.0);
+        assert_eq!(result.input_path, PathBuf::from("test.png"));
+        // Verify text_direction is explicitly set to Vertical (the fallback default for Japanese books)
+        assert_eq!(
+            result.text_direction,
+            crate::TextDirection::Vertical,
+            "empty_ocr_result should default to Vertical for Japanese book scanning"
+        );
+        // Verify processing_time is zero
+        assert_eq!(
+            result.processing_time,
+            std::time::Duration::from_secs(0),
+            "empty_ocr_result should have zero processing time"
+        );
+    }
+
+    #[test]
+    fn test_markdown_pipeline_no_upscale_no_deskew() {
+        use crate::cli::Cli;
+        use clap::Parser;
+
+        let cli =
+            Cli::try_parse_from(["superbook-pdf", "markdown", "input.pdf", "--no-deskew"]).unwrap();
+
+        if let crate::cli::Commands::Markdown(args) = cli.command {
+            let pipeline = MarkdownPipeline::from_args(&args);
+            assert!(!pipeline.config.deskew);
+            assert!(!pipeline.config.upscale);
+            assert!(!pipeline.config.gpu);
+        } else {
+            panic!("Expected Markdown command");
+        }
+    }
+
+    #[test]
+    fn test_figure_options_sensitivity_zero() {
+        use crate::cli::Cli;
+        use clap::Parser;
+
+        let cli = Cli::try_parse_from([
+            "superbook-pdf",
+            "markdown",
+            "input.pdf",
+            "--figure-sensitivity",
+            "0.0",
+        ])
+        .unwrap();
+
+        if let crate::cli::Commands::Markdown(args) = cli.command {
+            let pipeline = MarkdownPipeline::from_args(&args);
+            // sensitivity=0.0 → min_area_fraction = 0.05 * (1.0 - 0.0) = 0.05
+            assert!((pipeline.figure_options.min_area_fraction - 0.05).abs() < f32::EPSILON);
+        } else {
+            panic!("Expected Markdown command");
+        }
+    }
+
+    #[test]
+    fn test_figure_options_sensitivity_one() {
+        use crate::cli::Cli;
+        use clap::Parser;
+
+        let cli = Cli::try_parse_from([
+            "superbook-pdf",
+            "markdown",
+            "input.pdf",
+            "--figure-sensitivity",
+            "1.0",
+        ])
+        .unwrap();
+
+        if let crate::cli::Commands::Markdown(args) = cli.command {
+            let pipeline = MarkdownPipeline::from_args(&args);
+            // sensitivity=1.0 → min_area_fraction = 0.05 * (1.0 - 1.0) = 0.0
+            assert!(pipeline.figure_options.min_area_fraction.abs() < f32::EPSILON);
+        } else {
+            panic!("Expected Markdown command");
+        }
+    }
+
+    #[test]
+    fn test_progress_state_load_corrupted_json() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let path = tmpdir.path().join("corrupted.json");
+
+        // Write completely invalid JSON
+        std::fs::write(&path, "this is not json at all {{{").unwrap();
+        let result = ProgressState::load(&path);
+        assert!(
+            result.is_err(),
+            "Loading corrupted JSON should return Err, not silently succeed"
+        );
+
+        // Verify the error is a JSON parse error, not some other error type
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, MarkdownPipelineError::Json(_)),
+            "Expected Json error variant, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_progress_state_load_partial_json() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let path = tmpdir.path().join("partial.json");
+
+        // Write valid JSON but missing required fields
+        std::fs::write(&path, r#"{"total_pages": 5}"#).unwrap();
+        let result = ProgressState::load(&path);
+        assert!(
+            result.is_err(),
+            "Loading JSON with missing fields should return Err"
+        );
+    }
+
+    #[test]
+    fn test_progress_state_load_nonexistent_file() {
+        let result = ProgressState::load(Path::new("/nonexistent/path/to/file.json"));
+        assert!(
+            result.is_err(),
+            "Loading from nonexistent file should return Err"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, MarkdownPipelineError::Io(_)),
+            "Expected Io error variant for missing file, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_progress_state_very_large_page_index() {
+        let mut state = ProgressState::new(10, Path::new("test.pdf"), "test");
+        // Mark a page index far beyond total_pages — should not panic
+        state.mark_processed(usize::MAX);
+        assert!(state.is_processed(usize::MAX));
+        assert_eq!(state.processed_pages.len(), 1);
+
+        // Verify it can be serialized and deserialized
+        let tmpdir = tempfile::tempdir().unwrap();
+        let path = tmpdir.path().join("large_idx.json");
+        state.save(&path).unwrap();
+        let loaded = ProgressState::load(&path).unwrap();
+        assert!(loaded.is_processed(usize::MAX));
+    }
+
+    #[test]
+    fn test_progress_state_empty_title() {
+        let state = ProgressState::new(5, Path::new(""), "");
+        assert_eq!(state.title, "");
+        assert_eq!(state.input_pdf, PathBuf::from(""));
+
+        // Verify serialization roundtrip with empty strings
+        let tmpdir = tempfile::tempdir().unwrap();
+        let path = tmpdir.path().join("empty_title.json");
+        state.save(&path).unwrap();
+        let loaded = ProgressState::load(&path).unwrap();
+        assert_eq!(loaded.title, "");
+    }
+
+    #[test]
+    fn test_figure_options_sensitivity_clamped() {
+        use crate::cli::Cli;
+        use clap::Parser;
+
+        // Value > 1.0 should be clamped to 1.0
+        let cli = Cli::try_parse_from([
+            "superbook-pdf",
+            "markdown",
+            "input.pdf",
+            "--figure-sensitivity",
+            "5.0",
+        ])
+        .unwrap();
+
+        if let crate::cli::Commands::Markdown(args) = cli.command {
+            let pipeline = MarkdownPipeline::from_args(&args);
+            // clamped to 1.0 → min_area_fraction = 0.0
+            assert!(pipeline.figure_options.min_area_fraction.abs() < f32::EPSILON);
+        } else {
+            panic!("Expected Markdown command");
+        }
+    }
+
+    #[test]
+    fn test_progress_state_mark_idempotent() {
+        let mut state = ProgressState::new(5, Path::new("test.pdf"), "test");
+        state.mark_processed(2);
+        state.mark_processed(2); // duplicate
+        let completed: Vec<_> = (0..5).filter(|i| state.is_processed(*i)).collect();
+        // Page 2 should appear exactly once in the completed set
+        assert_eq!(
+            completed.iter().filter(|&&p| p == 2).count(),
+            1,
+            "Duplicate mark should be idempotent"
+        );
+    }
+
+    #[test]
+    fn test_empty_ocr_result_processing_time_zero() {
+        let result = MarkdownPipeline::empty_ocr_result(Path::new("zero.png"));
+        assert_eq!(
+            result.processing_time,
+            std::time::Duration::ZERO,
+            "Empty OCR processing time should be exactly zero"
+        );
+    }
+
+    #[test]
+    fn test_markdown_pipeline_default_config() {
+        use crate::cli::Cli;
+        use clap::Parser;
+
+        let cli = Cli::try_parse_from(["superbook-pdf", "markdown", "input.pdf"]).unwrap();
+        if let crate::cli::Commands::Markdown(args) = cli.command {
+            let pipeline = MarkdownPipeline::from_args(&args);
+            // Verify defaults
+            assert!(pipeline.config.deskew, "deskew should be true by default");
+            assert!(
+                !pipeline.config.upscale,
+                "upscale should be false by default"
+            );
+            assert_eq!(pipeline.config.dpi, 300, "DPI should default to 300");
         } else {
             panic!("Expected Markdown command");
         }

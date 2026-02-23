@@ -1,5 +1,6 @@
 # superbook-pdf CPU Override Configuration
 # GPU設定を無効化してCPUのみで動作させる
+# Issue #41: CUDAベースイメージに依存しないCPU専用ビルド
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d
@@ -7,6 +8,11 @@
 
 services:
   backend:
+    # CPU専用Dockerfileでビルド (ubuntu:22.04 ベース、CUDA不要)
+    build:
+      context: superbook-pdf
+      dockerfile: docker/backend/Dockerfile.cpu
+
     # GPU設定を削除
     deploy: {}
 

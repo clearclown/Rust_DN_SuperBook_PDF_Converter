@@ -225,8 +225,14 @@ impl ContentBoundaries {
         ContentRect {
             x: self.left.safe_position,
             y: self.top.safe_position,
-            width: self.right.safe_position.saturating_sub(self.left.safe_position),
-            height: self.bottom.safe_position.saturating_sub(self.top.safe_position),
+            width: self
+                .right
+                .safe_position
+                .saturating_sub(self.left.safe_position),
+            height: self
+                .bottom
+                .safe_position
+                .saturating_sub(self.top.safe_position),
         }
     }
 
@@ -248,7 +254,10 @@ impl ContentBoundaries {
 
     /// Get average confidence across all edges
     pub fn average_confidence(&self) -> f64 {
-        (self.top.confidence + self.bottom.confidence + self.left.confidence + self.right.confidence)
+        (self.top.confidence
+            + self.bottom.confidence
+            + self.left.confidence
+            + self.right.confidence)
             / 4.0
     }
 }
@@ -389,8 +398,7 @@ impl ContentAwareBoundaryDetector {
                 let idx = (y * width + x) as usize;
                 if !visited[idx] && binary.get_pixel(x, y).0[0] > 0 {
                     // Start new component
-                    let component =
-                        Self::flood_fill(binary, x, y, width, height, &mut visited);
+                    let component = Self::flood_fill(binary, x, y, width, height, &mut visited);
                     if component.pixel_count > 0 {
                         components.push(component);
                     }
@@ -466,7 +474,7 @@ impl ContentAwareBoundaryDetector {
 
         // Aspect ratio constraint
         let aspect = component.aspect_ratio();
-        if aspect < MIN_COMPONENT_ASPECT_RATIO || aspect > MAX_COMPONENT_ASPECT_RATIO {
+        if !(MIN_COMPONENT_ASPECT_RATIO..=MAX_COMPONENT_ASPECT_RATIO).contains(&aspect) {
             return false;
         }
 
@@ -606,8 +614,11 @@ impl ContentAwareBoundaryDetector {
         }
 
         let count = boundaries_list.len();
-        let avg_confidence: f64 =
-            boundaries_list.iter().map(|b| b.average_confidence()).sum::<f64>() / count as f64;
+        let avg_confidence: f64 = boundaries_list
+            .iter()
+            .map(|b| b.average_confidence())
+            .sum::<f64>()
+            / count as f64;
 
         Some(ContentBoundaries {
             top: ContentBoundary {

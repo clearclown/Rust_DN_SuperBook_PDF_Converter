@@ -159,8 +159,7 @@ impl ProcessingCache {
     pub fn load<P: AsRef<Path>>(output_path: P) -> io::Result<Self> {
         let cache_path = Self::cache_path(output_path);
         let content = fs::read_to_string(&cache_path)?;
-        serde_json::from_str(&content)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        serde_json::from_str(&content).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
     /// Save cache to file

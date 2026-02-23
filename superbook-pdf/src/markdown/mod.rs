@@ -22,12 +22,12 @@ mod types;
 pub mod api_validate;
 
 // Re-export public API
-pub use converter::{MarkdownConverter, MarkdownConversionResult};
-pub use element_detect::{ElementDetector, DetectedElement, ElementType, TableStructure};
-pub use reading_order::{ReadingOrderSorter, TextDirection, ReadingOrderOptions};
-pub use renderer::{MarkdownRenderer, MarkdownRenderOptions};
+pub use api_validate::{ApiValidator, ValidationProvider, ValidationResult};
+pub use converter::{MarkdownConversionResult, MarkdownConverter};
+pub use element_detect::{DetectedElement, ElementDetector, ElementType, TableStructure};
+pub use reading_order::{ReadingOrderOptions, ReadingOrderSorter, TextDirection};
+pub use renderer::{MarkdownRenderOptions, MarkdownRenderer};
 pub use types::{
-    MarkdownError, MarkdownOptions, MarkdownOptionsBuilder, PageContent, TextBlock, BoundingBox,
+    BoundingBox, MarkdownError, MarkdownOptions, MarkdownOptionsBuilder, PageContent, TextBlock,
     TextDirectionOption,
 };
-pub use api_validate::{ValidationProvider, ValidationResult, ApiValidator};

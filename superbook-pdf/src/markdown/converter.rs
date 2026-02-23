@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use super::api_validate::{ApiValidator, ValidationProvider, ValidationResult};
 use super::element_detect::ElementDetector;
 use super::reading_order::{ReadingOrderSorter, TextDirection};
-use super::renderer::{MarkdownRenderer, MarkdownRenderOptions};
+use super::renderer::{MarkdownRenderOptions, MarkdownRenderer};
 use super::types::{
     BoundingBox, MarkdownError, MarkdownOptions, PageContent, Result, TextBlock,
     TextDirectionOption,
@@ -62,11 +62,7 @@ impl MarkdownConverter {
     }
 
     /// Convert a PDF file to Markdown
-    pub fn convert(
-        &self,
-        pdf_path: &Path,
-        output_dir: &Path,
-    ) -> Result<MarkdownConversionResult> {
+    pub fn convert(&self, pdf_path: &Path, output_dir: &Path) -> Result<MarkdownConversionResult> {
         if !pdf_path.exists() {
             return Err(MarkdownError::PdfNotFound(pdf_path.to_path_buf()));
         }
@@ -179,7 +175,11 @@ impl MarkdownConverter {
     }
 
     /// Sort pages in reading order
-    fn sort_pages(&self, mut pages: Vec<PageContent>, direction: TextDirection) -> Vec<PageContent> {
+    fn sort_pages(
+        &self,
+        mut pages: Vec<PageContent>,
+        direction: TextDirection,
+    ) -> Vec<PageContent> {
         for page in &mut pages {
             ReadingOrderSorter::sort(&mut page.text_blocks, direction);
         }
@@ -207,8 +207,8 @@ impl MarkdownConverter {
             },
         });
 
-        let content =
-            serde_json::to_string_pretty(&metadata).map_err(|e| MarkdownError::ProcessingFailed(e.to_string()))?;
+        let content = serde_json::to_string_pretty(&metadata)
+            .map_err(|e| MarkdownError::ProcessingFailed(e.to_string()))?;
 
         std::fs::write(path, content).map_err(MarkdownError::IoError)?;
 
@@ -218,17 +218,18 @@ impl MarkdownConverter {
     /// Create validation provider from string
     fn create_provider(&self, name: &str) -> ValidationProvider {
         match name.to_lowercase().as_str() {
-            "claude" => ValidationProvider::claude(
-                std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
-            ),
-            "openai" => ValidationProvider::openai(
-                std::env::var("OPENAI_API_KEY").unwrap_or_default(),
-            ),
+            "claude" => {
+                ValidationProvider::claude(std::env::var("ANTHROPIC_API_KEY").unwrap_or_default())
+            }
+            "openai" => {
+                ValidationProvider::openai(std::env::var("OPENAI_API_KEY").unwrap_or_default())
+            }
             _ => ValidationProvider::local(name),
         }
     }
 
     /// Convert OCR result to PageContent
+    #[allow(clippy::type_complexity)]
     pub fn ocr_result_to_page_content(
         page_number: usize,
         page_size: (u32, u32),
@@ -327,10 +328,7 @@ mod tests {
         let converter = MarkdownConverter::new();
         let temp_dir = tempdir().unwrap();
 
-        let result = converter.convert(
-            Path::new("/nonexistent/file.pdf"),
-            temp_dir.path(),
-        );
+        let result = converter.convert(Path::new("/nonexistent/file.pdf"), temp_dir.path());
 
         assert!(matches!(result, Err(MarkdownError::PdfNotFound(_))));
     }

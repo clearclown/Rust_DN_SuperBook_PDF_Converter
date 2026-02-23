@@ -323,7 +323,12 @@ impl YomiToku {
         }
 
         // Get bridge script path
-        let bridge_dir = self.bridge.config().venv_path.parent().unwrap_or(Path::new("."));
+        let bridge_dir = self
+            .bridge
+            .config()
+            .venv_path
+            .parent()
+            .unwrap_or(Path::new("."));
         let bridge_script = bridge_dir.join("yomitoku_bridge.py");
 
         if !bridge_script.exists() {
@@ -362,7 +367,10 @@ impl YomiToku {
 
         // Parse JSON output from bridge
         let json_result: serde_json::Value = serde_json::from_str(&output).map_err(|e| {
-            YomiTokuError::ExecutionFailed(format!("Failed to parse output: {} (raw: {})", e, output))
+            YomiTokuError::ExecutionFailed(format!(
+                "Failed to parse output: {} (raw: {})",
+                e, output
+            ))
         })?;
 
         // Check for error in response
@@ -512,7 +520,8 @@ impl YomiToku {
                         .filter_map(|v| v.as_f64().map(|f| f as u32))
                         .collect();
                     if vals.len() >= 4 {
-                        (vals[0], vals[1], vals[2] - vals[0], vals[3] - vals[1]) // Convert to x, y, w, h
+                        (vals[0], vals[1], vals[2] - vals[0], vals[3] - vals[1])
+                    // Convert to x, y, w, h
                     } else {
                         (0, 0, 0, 0)
                     }

@@ -255,7 +255,10 @@ pub struct ShadowDetector;
 
 impl ShadowDetector {
     /// Detect shadows from an image file
-    pub fn detect(image_path: &Path, options: &ShadowRemovalOptions) -> Result<ShadowDetectionResult> {
+    pub fn detect(
+        image_path: &Path,
+        options: &ShadowRemovalOptions,
+    ) -> Result<ShadowDetectionResult> {
         if !image_path.exists() {
             return Err(MarginError::ImageNotFound(image_path.to_path_buf()));
         }
@@ -337,11 +340,7 @@ impl ShadowDetector {
     }
 
     /// Calculate brightness profile from edge to interior
-    fn calculate_brightness_profile(
-        image: &RgbImage,
-        edge: Edge,
-        sample_width: u32,
-    ) -> Vec<f32> {
+    fn calculate_brightness_profile(image: &RgbImage, edge: Edge, sample_width: u32) -> Vec<f32> {
         let (width, height) = image.dimensions();
         let mut profile = vec![0.0f32; sample_width as usize];
         let sample_count = SAMPLE_ROWS.min(height);
@@ -397,8 +396,8 @@ impl ShadowDetector {
 
             // Check if we're still in shadow region
             let brightness = profile[i];
-            let is_shadow = brightness < options.hsv_criteria.max_value
-                && local_gradient > GRADIENT_THRESHOLD;
+            let is_shadow =
+                brightness < options.hsv_criteria.max_value && local_gradient > GRADIENT_THRESHOLD;
 
             if is_shadow {
                 shadow_end = i as u32;
@@ -515,7 +514,9 @@ impl ShadowDetector {
 
                 // Calculate correction factor based on position
                 let progress = i as f32 / shadow.width as f32;
-                let correction = 1.0 + (1.0 - progress) * (shadow.max_brightness / shadow.min_brightness.max(0.1) - 1.0);
+                let correction = 1.0
+                    + (1.0 - progress)
+                        * (shadow.max_brightness / shadow.min_brightness.max(0.1) - 1.0);
 
                 let pixel = image.get_pixel(x, y);
                 let new_pixel = Self::scale_pixel(pixel, correction.min(2.0));

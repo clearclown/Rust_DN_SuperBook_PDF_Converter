@@ -81,7 +81,7 @@ fn to_pipeline_config(options: &ConvertOptions) -> PipelineConfig {
     PipelineConfig {
         dpi: options.dpi,
         deskew: options.deskew,
-        margin_trim: 0.5,
+        margin_trim: 0.7,
         upscale: options.upscale,
         gpu: true,
         internal_resolution: advanced,
@@ -93,8 +93,9 @@ fn to_pipeline_config(options: &ConvertOptions) -> PipelineConfig {
         save_debug: false,
         jpeg_quality: 90,
         threads: None,
-        max_memory_mb: 0,  // Auto-detect
-        chunk_size: 0,    // Auto-calculate
+        max_memory_mb: 0,
+        chunk_size: 0,
+        ..PipelineConfig::default()
     }
 }
 
@@ -279,7 +280,11 @@ impl WorkerPool {
             });
         }
 
-        Self { sender, work_dir, worker_count }
+        Self {
+            sender,
+            work_dir,
+            worker_count,
+        }
     }
 
     /// Submit a job for processing

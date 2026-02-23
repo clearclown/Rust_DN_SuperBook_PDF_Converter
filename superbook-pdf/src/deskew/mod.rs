@@ -860,9 +860,7 @@ mod tests {
     #[test]
     fn test_tc_dsk_007_background_color_setting() {
         // Test DeskewOptions with different background colors
-        let black_opts = DeskewOptions::builder()
-            .background_color([0, 0, 0])
-            .build();
+        let black_opts = DeskewOptions::builder().background_color([0, 0, 0]).build();
         assert_eq!(black_opts.background_color, [0, 0, 0]);
 
         let white_opts = DeskewOptions::builder()
@@ -953,7 +951,10 @@ mod tests {
 
         // Default should be HoughLines
         let default_opts = DeskewOptions::default();
-        assert!(matches!(default_opts.algorithm, DeskewAlgorithm::HoughLines));
+        assert!(matches!(
+            default_opts.algorithm,
+            DeskewAlgorithm::HoughLines
+        ));
 
         // Fast preset uses ProjectionProfile
         let fast_opts = DeskewOptions::fast();

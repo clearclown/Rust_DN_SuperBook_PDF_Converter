@@ -166,7 +166,12 @@ pub struct Rectangle {
 impl Rectangle {
     /// Create a new rectangle
     pub fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     /// Check if a point is inside the rectangle
@@ -711,11 +716,8 @@ mod tests {
 
     #[test]
     fn test_page_number_candidate_new() {
-        let candidate = PageNumberCandidate::new(
-            "42".to_string(),
-            Rectangle::new(100, 900, 50, 30),
-            0.95,
-        );
+        let candidate =
+            PageNumberCandidate::new("42".to_string(), Rectangle::new(100, 900, 50, 30), 0.95);
         assert_eq!(candidate.text, "42");
         assert_eq!(candidate.number, Some(42));
         assert!(candidate.ocr_success);
@@ -724,11 +726,8 @@ mod tests {
 
     #[test]
     fn test_page_number_candidate_no_number() {
-        let candidate = PageNumberCandidate::new(
-            "abc".to_string(),
-            Rectangle::new(100, 900, 50, 30),
-            0.80,
-        );
+        let candidate =
+            PageNumberCandidate::new("abc".to_string(), Rectangle::new(100, 900, 50, 30), 0.80);
         assert_eq!(candidate.text, "abc");
         assert_eq!(candidate.number, None);
         assert!(candidate.ocr_success); // still considered success if text detected
@@ -736,11 +735,8 @@ mod tests {
 
     #[test]
     fn test_page_number_candidate_empty() {
-        let candidate = PageNumberCandidate::new(
-            "".to_string(),
-            Rectangle::new(100, 900, 50, 30),
-            0.50,
-        );
+        let candidate =
+            PageNumberCandidate::new("".to_string(), Rectangle::new(100, 900, 50, 30), 0.50);
         assert!(!candidate.ocr_success);
     }
 
@@ -755,25 +751,18 @@ mod tests {
     #[test]
     fn test_match_stage_description() {
         assert!(MatchStage::ExactMatch.description().contains("Exact"));
-        assert!(MatchStage::SimilarityMatch.description().contains("similarity"));
+        assert!(MatchStage::SimilarityMatch
+            .description()
+            .contains("similarity"));
         assert!(MatchStage::OcrSuccessMatch.description().contains("OCR"));
         assert!(MatchStage::FallbackMatch.description().contains("Fallback"));
     }
 
     #[test]
     fn test_page_number_match_new() {
-        let candidate = PageNumberCandidate::new(
-            "42".to_string(),
-            Rectangle::new(100, 900, 50, 30),
-            0.95,
-        );
-        let match_result = PageNumberMatch::new(
-            candidate,
-            MatchStage::ExactMatch,
-            1.0,
-            10.0,
-            42,
-        );
+        let candidate =
+            PageNumberCandidate::new("42".to_string(), Rectangle::new(100, 900, 50, 30), 0.95);
+        let match_result = PageNumberMatch::new(candidate, MatchStage::ExactMatch, 1.0, 10.0, 42);
         assert!(match_result.is_exact());
         assert_eq!(match_result.expected_number, 42);
         assert_eq!(match_result.distance, 10.0);
@@ -781,26 +770,13 @@ mod tests {
 
     #[test]
     fn test_page_number_match_quality() {
-        let candidate = PageNumberCandidate::new(
-            "42".to_string(),
-            Rectangle::new(100, 900, 50, 30),
-            0.95,
-        );
+        let candidate =
+            PageNumberCandidate::new("42".to_string(), Rectangle::new(100, 900, 50, 30), 0.95);
 
-        let exact_match = PageNumberMatch::new(
-            candidate.clone(),
-            MatchStage::ExactMatch,
-            1.0,
-            10.0,
-            42,
-        );
-        let fallback_match = PageNumberMatch::new(
-            candidate,
-            MatchStage::FallbackMatch,
-            0.5,
-            10.0,
-            42,
-        );
+        let exact_match =
+            PageNumberMatch::new(candidate.clone(), MatchStage::ExactMatch, 1.0, 10.0, 42);
+        let fallback_match =
+            PageNumberMatch::new(candidate, MatchStage::FallbackMatch, 0.5, 10.0, 42);
 
         // Exact match should have higher quality
         assert!(exact_match.quality() > fallback_match.quality());

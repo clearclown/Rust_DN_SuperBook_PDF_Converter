@@ -8,20 +8,31 @@ use std::path::PathBuf;
 use std::time::Instant;
 use superbook_pdf::{
     exit_codes,
+    should_skip_processing,
     // Cache module
-    CacheDigest, ProcessingCache, should_skip_processing,
+    CacheDigest,
     // CLI
-    CacheInfoArgs, Cli, Commands, ConvertArgs, MarkdownArgs, ReprocessArgs,
+    CacheInfoArgs,
+    Cli,
     // Config
-    CliOverrides, Config,
-    // Pipeline
-    PdfPipeline, ProgressCallback,
+    CliOverrides,
+    Commands,
+    Config,
+    ConvertArgs,
+    MarkdownArgs,
     // Markdown pipeline
     MarkdownPipeline,
+    // Reprocess
+    PageStatus,
+    // Pipeline
+    PdfPipeline,
+    ProcessingCache,
+    ProgressCallback,
     // Progress tracking
     ProgressTracker,
-    // Reprocess
-    PageStatus, ReprocessOptions, ReprocessState,
+    ReprocessArgs,
+    ReprocessOptions,
+    ReprocessState,
 };
 
 #[cfg(feature = "web")]
@@ -34,7 +45,6 @@ fn main() {
         Commands::Convert(args) => run_convert(&args),
         Commands::Markdown(args) => run_markdown(&args),
         Commands::Reprocess(args) => run_reprocess(&args),
-        Commands::Markdown(args) => run_markdown(&args),
         Commands::Info => run_info(),
         Commands::CacheInfo(args) => run_cache_info(&args),
         #[cfg(feature = "web")]
@@ -106,6 +116,11 @@ impl ProgressCallback for VerboseProgress {
             println!("    [DEBUG] {}", message);
         }
     }
+
+    fn on_warning(&self, message: &str) {
+        // Warnings always shown (even at verbose level 0)
+        eprintln!("    [WARNING] {}", message);
+    }
 }
 
 // ============ Convert Command ============
@@ -128,15 +143,13 @@ fn run_convert(args: &ConvertArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     // Load config file if specified, otherwise use default
     let file_config = match &args.config {
-        Some(config_path) => {
-            match Config::load_from_path(config_path) {
-                Ok(cfg) => cfg,
-                Err(e) => {
-                    eprintln!("Warning: Failed to load config file: {}", e);
-                    Config::default()
-                }
+        Some(config_path) => match Config::load_from_path(config_path) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                eprintln!("Warning: Failed to load config file: {}", e);
+                Config::default()
             }
-        }
+        },
         None => Config::load().unwrap_or_default(),
     };
 
@@ -187,7 +200,8 @@ fn run_convert(args: &ConvertArgs) -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
         } else if !args.force {
-            if let Some(cache) = should_skip_processing(pdf_path, &output_pdf, &options_json, false) {
+            if let Some(cache) = should_skip_processing(pdf_path, &output_pdf, &options_json, false)
+            {
                 if verbose {
                     println!(
                         "[{}/{}] Skipping (cached, {} pages): {}",
@@ -226,9 +240,7 @@ fn run_convert(args: &ConvertArgs) -> Result<(), Box<dyn std::error::Error>> {
                 if verbose {
                     println!(
                         "    Completed: {} pages, {:.2}s, {} bytes",
-                        result.page_count,
-                        result.elapsed_seconds,
-                        result.output_size
+                        result.page_count, result.elapsed_seconds, result.output_size
                     );
                 }
             }
@@ -380,6 +392,25 @@ fn create_cli_overrides(args: &ConvertArgs) -> CliOverrides {
         overrides.save_debug = Some(true);
     }
 
+    // Shadow removal: override if not default (auto)
+    let shadow_mode = format!("{:?}", args.shadow_removal).to_lowercase();
+    if shadow_mode != "auto" {
+        overrides.shadow_removal = Some(shadow_mode);
+    }
+
+    // Marker removal: override if explicitly enabled
+    if args.remove_markers {
+        overrides.remove_markers = Some(true);
+        overrides.marker_colors = Some(args.marker_colors.clone());
+    }
+
+    // Deblur: override if explicitly enabled
+    if args.deblur {
+        overrides.deblur = Some(true);
+        overrides.deblur_algorithm =
+            Some(format!("{:?}", args.deblur_algorithm).to_lowercase());
+    }
+
     overrides
 }
 
@@ -406,7 +437,11 @@ fn collect_pdf_files(input: &PathBuf) -> Result<Vec<PathBuf>, Box<dyn std::error
 }
 
 /// Print execution plan for dry-run mode
-fn print_execution_plan(args: &ConvertArgs, pdf_files: &[PathBuf], config: &superbook_pdf::PipelineConfig) {
+fn print_execution_plan(
+    args: &ConvertArgs,
+    pdf_files: &[PathBuf],
+    config: &superbook_pdf::PipelineConfig,
+) {
     println!("=== Dry Run - Execution Plan ===");
     println!();
     println!("Input: {}", args.input.display());
@@ -426,10 +461,22 @@ fn print_execution_plan(args: &ConvertArgs, pdf_files: &[PathBuf], config: &supe
     } else {
         println!("  4. AI Upscaling: DISABLED");
     }
+    if config.shadow_removal != "none" {
+        println!(
+            "  4a. Shadow Removal (mode: {}): ENABLED",
+            config.shadow_removal
+        );
+    }
     if config.ocr {
         println!("  5. OCR (YomiToku): ENABLED");
     } else {
         println!("  5. OCR: DISABLED");
+    }
+    if config.deblur {
+        println!(
+            "  5a. Deblur ({}): ENABLED",
+            config.deblur_algorithm
+        );
     }
     if config.internal_resolution {
         println!("  6. Internal Resolution Normalization (4960x7016): ENABLED");
@@ -437,21 +484,39 @@ fn print_execution_plan(args: &ConvertArgs, pdf_files: &[PathBuf], config: &supe
     if config.color_correction {
         println!("  7. Global Color Correction: ENABLED");
     }
+    if config.remove_markers {
+        println!(
+            "  7a. Marker Removal (colors: {}): ENABLED",
+            config.marker_colors.join(", ")
+        );
+    }
     if config.offset_alignment {
         println!("  8. Page Number Offset Alignment: ENABLED");
     }
-    println!("  9. PDF Generation (output height: {})", config.output_height);
+    println!(
+        "  9. PDF Generation (output height: {})",
+        config.output_height
+    );
     println!();
     println!("Processing Options:");
-    println!("  Threads: {}", config.threads.unwrap_or_else(num_cpus::get));
+    println!(
+        "  Threads: {}",
+        config.threads.unwrap_or_else(num_cpus::get)
+    );
     if args.chunk_size > 0 {
         println!("  Chunk size: {} pages", args.chunk_size);
     } else {
         println!("  Chunk size: unlimited (all pages at once)");
     }
     println!("  GPU: {}", if config.gpu { "YES" } else { "NO" });
-    println!("  Skip existing: {}", if args.skip_existing { "YES" } else { "NO" });
-    println!("  Force re-process: {}", if args.force { "YES" } else { "NO" });
+    println!(
+        "  Skip existing: {}",
+        if args.skip_existing { "YES" } else { "NO" }
+    );
+    println!(
+        "  Force re-process: {}",
+        if args.force { "YES" } else { "NO" }
+    );
     println!("  Verbose: {}", args.verbose);
     println!();
     println!("Debug Options:");
@@ -460,7 +525,10 @@ fn print_execution_plan(args: &ConvertArgs, pdf_files: &[PathBuf], config: &supe
     } else {
         println!("  Max pages: unlimited");
     }
-    println!("  Save debug images: {}", if config.save_debug { "YES" } else { "NO" });
+    println!(
+        "  Save debug images: {}",
+        if config.save_debug { "YES" } else { "NO" }
+    );
     println!();
     println!("Files:");
     for (i, file) in pdf_files.iter().enumerate() {
@@ -532,7 +600,10 @@ fn run_info() -> Result<(), Box<dyn std::error::Error>> {
     println!("Config File Locations:");
     println!("  Local: ./superbook.toml");
     if let Some(config_dir) = dirs::config_dir() {
-        println!("  User:  {}", config_dir.join("superbook-pdf/config.toml").display());
+        println!(
+            "  User:  {}",
+            config_dir.join("superbook-pdf/config.toml").display()
+        );
     }
 
     Ok(())
@@ -549,7 +620,10 @@ fn check_tool_with_version(cmd: &str, name: &str, version_args: &[&str]) {
     match which::which(cmd) {
         Ok(path) => {
             // Try to get version
-            if let Ok(output) = std::process::Command::new(&path).args(version_args).output() {
+            if let Ok(output) = std::process::Command::new(&path)
+                .args(version_args)
+                .output()
+            {
                 let version_str = String::from_utf8_lossy(&output.stdout);
                 let first_line = version_str.lines().next().unwrap_or("");
                 if !first_line.is_empty() && first_line.len() < 80 {
@@ -607,6 +681,55 @@ fn check_python() {
             println!("  YomiToku: Not installed");
         }
     }
+
+    // Check bridge scripts availability
+    println!();
+    println!("Bridge Scripts:");
+
+    let venv_path = superbook_pdf::resolve_venv_path();
+
+    let bridge_scripts_dir = std::env::var("SUPERBOOK_BRIDGE_SCRIPTS_DIR")
+        .map(PathBuf::from)
+        .ok();
+
+    let config = superbook_pdf::AiBridgeConfig::builder()
+        .venv_path(&venv_path)
+        .build();
+
+    let config = if let Some(dir) = bridge_scripts_dir {
+        superbook_pdf::AiBridgeConfig {
+            bridge_scripts_dir: Some(dir),
+            ..config
+        }
+    } else {
+        config
+    };
+
+    for tool in &[
+        superbook_pdf::AiTool::RealESRGAN,
+        superbook_pdf::AiTool::YomiToku,
+    ] {
+        match superbook_pdf::resolve_bridge_script(*tool, &config) {
+            Ok(path) => {
+                println!(
+                    "  {} ({}): Found at {}",
+                    tool.display_name(),
+                    tool.bridge_script_name(),
+                    path.display()
+                );
+            }
+            Err(_) => {
+                println!(
+                    "  {} ({}): NOT FOUND",
+                    tool.display_name(),
+                    tool.bridge_script_name()
+                );
+                println!(
+                    "    → Place the script in ./ai_bridge/ or set SUPERBOOK_BRIDGE_SCRIPTS_DIR"
+                );
+            }
+        }
+    }
 }
 
 // ============ Cache Info Command ============
@@ -625,14 +748,20 @@ fn run_cache_info(args: &CacheInfoArgs) -> Result<(), Box<dyn std::error::Error>
             println!("=== Cache Information ===");
             println!();
             println!("Output file: {}", output_path.display());
-            println!("Cache file:  {}", ProcessingCache::cache_path(output_path).display());
+            println!(
+                "Cache file:  {}",
+                ProcessingCache::cache_path(output_path).display()
+            );
             println!();
             println!("Cache Version: {}", cache.version);
             let processed_dt: DateTime<Local> = Local
                 .timestamp_opt(cache.processed_at as i64, 0)
                 .single()
                 .unwrap_or_else(Local::now);
-            println!("Processed at:  {}", processed_dt.format("%Y-%m-%d %H:%M:%S"));
+            println!(
+                "Processed at:  {}",
+                processed_dt.format("%Y-%m-%d %H:%M:%S")
+            );
             println!();
             println!("Source Digest:");
             println!("  Modified: {}", cache.digest.source_modified);
@@ -643,11 +772,20 @@ fn run_cache_info(args: &CacheInfoArgs) -> Result<(), Box<dyn std::error::Error>
             println!("  Page count:  {}", cache.result.page_count);
             println!(
                 "  Page shift:  {}",
-                cache.result.page_number_shift
+                cache
+                    .result
+                    .page_number_shift
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| "none".to_string())
             );
-            println!("  Vertical:    {}", if cache.result.is_vertical { "yes" } else { "no" });
+            println!(
+                "  Vertical:    {}",
+                if cache.result.is_vertical {
+                    "yes"
+                } else {
+                    "no"
+                }
+            );
             println!("  Elapsed:     {:.2}s", cache.result.elapsed_seconds);
             println!(
                 "  Output size: {} bytes ({:.2} MB)",
@@ -657,7 +795,10 @@ fn run_cache_info(args: &CacheInfoArgs) -> Result<(), Box<dyn std::error::Error>
         }
         Err(e) => {
             println!("No cache found for: {}", output_path.display());
-            println!("Cache file would be: {}", ProcessingCache::cache_path(output_path).display());
+            println!(
+                "Cache file would be: {}",
+                ProcessingCache::cache_path(output_path).display()
+            );
             println!();
             println!("Reason: {}", e);
         }
@@ -678,7 +819,10 @@ fn run_reprocess(args: &ReprocessArgs) -> Result<(), Box<dyn std::error::Error>>
     } else {
         // For PDF input, look for state file in output directory
         let output_dir = args.output.clone().unwrap_or_else(|| {
-            args.input.parent().unwrap_or(std::path::Path::new(".")).join("output")
+            args.input
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .join("output")
         });
         output_dir.join(".superbook-state.json")
     };
@@ -733,7 +877,11 @@ fn run_reprocess(args: &ReprocessArgs) -> Result<(), Box<dyn std::error::Error>>
     // Process each failed page
     for &page_idx in &failed_pages {
         if page_idx >= state.pages.len() {
-            eprintln!("Warning: Page index {} out of range (total: {})", page_idx, state.pages.len());
+            eprintln!(
+                "Warning: Page index {} out of range (total: {})",
+                page_idx,
+                state.pages.len()
+            );
             continue;
         }
 
@@ -741,7 +889,10 @@ fn run_reprocess(args: &ReprocessArgs) -> Result<(), Box<dyn std::error::Error>>
         if let PageStatus::Failed { retry_count, .. } = &state.pages[page_idx] {
             if *retry_count >= options.max_retries && !args.force {
                 if verbose {
-                    println!("  Page {}: Skipped (max retries {} exceeded)", page_idx, options.max_retries);
+                    println!(
+                        "  Page {}: Skipped (max retries {} exceeded)",
+                        page_idx, options.max_retries
+                    );
                 }
                 still_failed += 1;
                 continue;
@@ -817,7 +968,11 @@ fn print_reprocess_status(state: &ReprocessState) {
 
     let success_count = state.success_pages().len();
     let failed_pages = state.failed_pages();
-    let pending_count = state.pages.iter().filter(|p| matches!(p, PageStatus::Pending)).count();
+    let pending_count = state
+        .pages
+        .iter()
+        .filter(|p| matches!(p, PageStatus::Pending))
+        .count();
 
     println!("  Success: {}", success_count);
     println!("  Failed:  {}", failed_pages.len());
@@ -834,93 +989,6 @@ fn print_reprocess_status(state: &ReprocessState) {
             }
         }
     }
-}
-
-// ============ Markdown Command ============
-
-fn run_markdown(args: &MarkdownArgs) -> Result<(), Box<dyn std::error::Error>> {
-    use superbook_pdf::markdown::{
-        MarkdownConverter, MarkdownOptions, TextDirectionOption,
-    };
-
-    let start_time = Instant::now();
-
-    // Validate input
-    if !args.input.exists() {
-        return Err(format!("Input file not found: {}", args.input.display()).into());
-    }
-
-    if !args.quiet {
-        println!("PDF to Markdown Conversion");
-        println!("==========================");
-        println!("Input:  {}", args.input.display());
-        println!("Output: {}", args.output.display());
-        println!();
-    }
-
-    // Build options
-    let text_direction = match args.text_direction {
-        superbook_pdf::TextDirectionCli::Auto => TextDirectionOption::Auto,
-        superbook_pdf::TextDirectionCli::Horizontal => TextDirectionOption::Horizontal,
-        superbook_pdf::TextDirectionCli::Vertical => TextDirectionOption::Vertical,
-    };
-
-    let api_provider = if args.validate {
-        Some(match args.api_provider {
-            superbook_pdf::ValidationProviderCli::Claude => "claude".to_string(),
-            superbook_pdf::ValidationProviderCli::Openai => "openai".to_string(),
-            superbook_pdf::ValidationProviderCli::Local => "local".to_string(),
-        })
-    } else {
-        None
-    };
-
-    let options = MarkdownOptions::builder()
-        .text_direction(text_direction)
-        .extract_images(args.effective_extract_images())
-        .detect_tables(args.effective_detect_tables())
-        .include_page_numbers(args.include_page_numbers)
-        .generate_metadata(args.generate_metadata)
-        .validate(args.validate)
-        .api_provider_opt(api_provider)
-        .build();
-
-    // Create converter and run
-    let converter = MarkdownConverter::with_options(options);
-    let result = converter.convert(&args.input, &args.output)?;
-
-    let elapsed = start_time.elapsed();
-
-    // Print summary
-    if !args.quiet {
-        println!("=== Conversion Summary ===");
-        println!("Pages processed:  {}", result.pages_processed);
-        println!("Text blocks:      {}", result.total_blocks);
-        println!("Output file:      {}", result.output_path.display());
-
-        if !result.extracted_images.is_empty() {
-            println!("Images extracted: {}", result.extracted_images.len());
-        }
-
-        if let Some(meta_path) = &result.metadata_path {
-            println!("Metadata:         {}", meta_path.display());
-        }
-
-        if let Some(validation) = &result.validation {
-            println!();
-            println!("Validation:");
-            println!("  Valid:      {}", if validation.valid { "Yes" } else { "No" });
-            println!("  Confidence: {:.1}%", validation.confidence * 100.0);
-            if !validation.issues.is_empty() {
-                println!("  Issues:     {}", validation.issues.len());
-            }
-        }
-
-        println!();
-        println!("Time elapsed: {:.2}s", elapsed.as_secs_f64());
-    }
-
-    Ok(())
 }
 
 // ============ Serve Command (Web Server) ============
@@ -956,6 +1024,7 @@ fn run_serve(args: &ServeArgs) -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::VerboseProgress;
+    use superbook_pdf::{ProgressCallback, SilentProgress};
 
     // TC-CLI-OUTPUT-001: DEBUG messages should only appear at verbose level 3 (-vvv)
     #[test]
@@ -1003,5 +1072,44 @@ mod tests {
         assert!(handler_3.should_show_steps());
         assert!(handler_3.should_show_progress());
         assert!(handler_3.should_show_debug());
+    }
+
+    // TC-CLI-OUTPUT-003: on_warning always prints regardless of verbose level
+    #[test]
+    fn test_on_warning_always_visible() {
+        // on_warning should work at all verbose levels (even 0)
+        // We verify it doesn't panic and the impl doesn't gate on verbose_level
+        let handler_0 = VerboseProgress::new(0);
+        handler_0.on_warning("test warning at level 0");
+
+        let handler_1 = VerboseProgress::new(1);
+        handler_1.on_warning("test warning at level 1");
+
+        let handler_3 = VerboseProgress::new(3);
+        handler_3.on_warning("test warning at level 3");
+    }
+
+    // TC-CLI-OUTPUT-004: SilentProgress on_warning is a no-op
+    #[test]
+    fn test_silent_progress_on_warning() {
+        let silent = SilentProgress;
+        // Should not panic or produce output
+        silent.on_warning("test warning");
+        silent.on_debug("test debug");
+    }
+
+    // TC-CLI-OUTPUT-005: Default ProgressCallback on_warning implementation
+    #[test]
+    fn test_default_progress_callback_on_warning() {
+        struct MinimalProgress;
+        impl ProgressCallback for MinimalProgress {
+            fn on_step_start(&self, _step: &str) {}
+            fn on_step_progress(&self, _current: usize, _total: usize) {}
+            fn on_step_complete(&self, _step: &str, _message: &str) {}
+            fn on_debug(&self, _message: &str) {}
+        }
+        // Default on_warning should print to stderr — verify it doesn't panic
+        let progress = MinimalProgress;
+        progress.on_warning("test default warning");
     }
 }

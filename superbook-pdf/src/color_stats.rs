@@ -169,8 +169,8 @@ impl Default for BleedSuppression {
             hue_max: 65.0,
             // C# version uses BleedValueMin = 0.35, no saturation check
             // But we keep saturation_max for additional filtering
-            saturation_max: 1.0,  // No saturation filter (match C# behavior)
-            value_min: 0.35,      // Match C# BleedValueMin = 0.35
+            saturation_max: 1.0, // No saturation filter (match C# behavior)
+            value_min: 0.35,     // Match C# BleedValueMin = 0.35
             enabled: true,
             strength: 1.0,
         }
@@ -568,6 +568,11 @@ impl ColorAnalyzer {
         }
     }
 
+    /// Contrast boost factor applied after color correction.
+    /// Enhances ink darkness without affecting paper whiteness.
+    /// Value of 1.08 = 8% boost, centered on midpoint (128).
+    const CONTRAST_BOOST: f64 = 1.08;
+
     /// Apply global color adjustment to an image
     pub fn apply_adjustment(image: &mut RgbImage, params: &GlobalColorParam) {
         let (w, h) = image.dimensions();
@@ -583,6 +588,15 @@ impl ColorAnalyzer {
                 let mut r = Self::clamp8(src_r as f64 * params.scale_r + params.offset_r);
                 let mut g = Self::clamp8(src_g as f64 * params.scale_g + params.offset_g);
                 let mut b = Self::clamp8(src_b as f64 * params.scale_b + params.offset_b);
+
+                // Mild contrast boost centered on midpoint (128)
+                // Only applied to non-paper pixels to preserve white balance
+                let lum_pre = Self::luminance(r, g, b) as i32;
+                if lum_pre < clip_start {
+                    r = Self::clamp8((r as f64 - 128.0) * Self::CONTRAST_BOOST + 128.0);
+                    g = Self::clamp8((g as f64 - 128.0) * Self::CONTRAST_BOOST + 128.0);
+                    b = Self::clamp8((b as f64 - 128.0) * Self::CONTRAST_BOOST + 128.0);
+                }
 
                 // Paper-like pixel whitening (smooth-step)
                 let lum = Self::luminance(r, g, b) as i32;
@@ -1043,7 +1057,7 @@ mod tests {
     fn test_tc_color_002_yellowed_paper_correction() {
         // Create image with yellowed paper (cream/beige tint)
         let mut img = RgbImage::from_pixel(100, 100, Rgb([245, 235, 210])); // Yellowed paper
-        // Add some dark text
+                                                                            // Add some dark text
         for y in 40..60 {
             for x in 20..80 {
                 img.put_pixel(x, y, Rgb([30, 25, 20]));
@@ -1082,7 +1096,7 @@ mod tests {
     fn test_tc_color_003_ghost_suppression_params() {
         // Create realistic book page: white paper with dark text
         let mut img = RgbImage::from_pixel(100, 100, Rgb([245, 243, 240])); // Slightly off-white paper
-        // Add dark text
+                                                                            // Add dark text
         for y in 30..40 {
             for x in 20..80 {
                 img.put_pixel(x, y, Rgb([30, 28, 25])); // Dark ink
@@ -1273,8 +1287,8 @@ mod tests {
         assert_eq!(bleed.hue_min, 20.0);
         assert_eq!(bleed.hue_max, 65.0);
         // C# version: no saturation filter, BleedValueMin = 0.35
-        assert_eq!(bleed.saturation_max, 1.0);  // No saturation filter
-        assert_eq!(bleed.value_min, 0.35);      // Match C# BleedValueMin
+        assert_eq!(bleed.saturation_max, 1.0); // No saturation filter
+        assert_eq!(bleed.value_min, 0.35); // Match C# BleedValueMin
         assert!(bleed.enabled);
         assert_eq!(bleed.strength, 1.0);
     }

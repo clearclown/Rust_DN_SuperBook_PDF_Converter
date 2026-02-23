@@ -337,6 +337,25 @@ impl Config {
             config.jpeg_quality = quality;
         }
 
+        // Apply processing shadow removal setting
+        if let Some(ref shadow) = self.processing.shadow_removal {
+            config.shadow_removal = shadow.clone();
+        }
+
+        // Apply cleanup settings
+        if let Some(marker) = self.cleanup.marker_removal {
+            config.remove_markers = marker;
+        }
+        if let Some(ref colors) = self.cleanup.highlighter_colors {
+            config.marker_colors = colors.clone();
+        }
+        if let Some(deblur) = self.cleanup.deblur {
+            config.deblur = deblur;
+        }
+        if let Some(ref algo) = self.cleanup.deblur_algorithm {
+            config.deblur_algorithm = algo.clone();
+        }
+
         config
     }
 
@@ -387,6 +406,21 @@ impl Config {
         if let Some(save_debug) = cli.save_debug {
             config.save_debug = save_debug;
         }
+        if let Some(ref shadow) = cli.shadow_removal {
+            config.shadow_removal = shadow.clone();
+        }
+        if let Some(markers) = cli.remove_markers {
+            config.remove_markers = markers;
+        }
+        if let Some(ref colors) = cli.marker_colors {
+            config.marker_colors = colors.clone();
+        }
+        if let Some(deblur) = cli.deblur {
+            config.deblur = deblur;
+        }
+        if let Some(ref algo) = cli.deblur_algorithm {
+            config.deblur_algorithm = algo.clone();
+        }
 
         config
     }
@@ -420,6 +454,11 @@ pub struct CliOverrides {
     pub jpeg_quality: Option<u8>,
     pub max_pages: Option<usize>,
     pub save_debug: Option<bool>,
+    pub shadow_removal: Option<String>,
+    pub remove_markers: Option<bool>,
+    pub marker_colors: Option<Vec<String>>,
+    pub deblur: Option<bool>,
+    pub deblur_algorithm: Option<String>,
 }
 
 impl CliOverrides {

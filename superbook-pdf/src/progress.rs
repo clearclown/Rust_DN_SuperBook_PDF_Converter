@@ -251,7 +251,8 @@ impl ProgressTracker {
                 "\r    {} {:3}% ({}/{})",
                 bar, percent, self.current_page, self.total_pages
             );
-            if self.output_mode.should_show(OutputMode::VeryVerbose) && !self.current_item.is_empty()
+            if self.output_mode.should_show(OutputMode::VeryVerbose)
+                && !self.current_item.is_empty()
             {
                 print!(" {}", self.current_item);
             }

@@ -440,10 +440,7 @@ impl Deblurrer {
         // Apply unsharp mask to each channel
         for channel in 0..3 {
             // Extract channel
-            let original: Vec<f32> = image
-                .pixels()
-                .map(|p| p.0[channel] as f32)
-                .collect();
+            let original: Vec<f32> = image.pixels().map(|p| p.0[channel] as f32).collect();
 
             // Apply Gaussian blur
             let blurred = Self::convolve_separable(&original, width, height, &kernel);

@@ -193,12 +193,7 @@ impl WsBroadcaster {
     }
 
     /// Broadcast completion
-    pub async fn broadcast_completed(
-        &self,
-        job_id: Uuid,
-        elapsed_seconds: f64,
-        page_count: usize,
-    ) {
+    pub async fn broadcast_completed(&self, job_id: Uuid, elapsed_seconds: f64, page_count: usize) {
         self.broadcast(
             job_id,
             WsMessage::Completed {
@@ -581,9 +576,7 @@ mod tests {
 
         let mut receiver = broadcaster.subscribe(job_id).await;
 
-        broadcaster
-            .broadcast_error(job_id, "Pipeline failed")
-            .await;
+        broadcaster.broadcast_error(job_id, "Pipeline failed").await;
 
         let msg = receiver.recv().await.unwrap();
         match msg {
@@ -669,9 +662,7 @@ mod tests {
         let job_id = Uuid::new_v4();
 
         // Should not panic
-        broadcaster
-            .broadcast_progress(job_id, 1, 10, "Test")
-            .await;
+        broadcaster.broadcast_progress(job_id, 1, 10, "Test").await;
     }
 
     // TC-WS-014: Multiple jobs
@@ -742,9 +733,7 @@ mod tests {
 
         let mut receiver = broadcaster.subscribe(batch_id).await;
 
-        broadcaster
-            .broadcast_batch_completed(batch_id, 8, 2)
-            .await;
+        broadcaster.broadcast_batch_completed(batch_id, 8, 2).await;
 
         let msg = receiver.recv().await.unwrap();
         match msg {

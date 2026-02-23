@@ -243,9 +243,7 @@ impl ElementDetector {
 
         for block in blocks {
             // Check if block is below the element
-            if block.bbox.y > element.bbox.bottom()
-                && block.bbox.y < element.bbox.bottom() + 100
-            {
+            if block.bbox.y > element.bbox.bottom() && block.bbox.y < element.bbox.bottom() + 100 {
                 let text = block.text.trim();
                 for pattern in &caption_patterns {
                     if text.starts_with(pattern) {
@@ -267,10 +265,7 @@ impl ElementDetector {
         bbox: BoundingBox,
     ) -> Option<TableStructure> {
         // Simplified table detection: analyze text blocks within the bounding box
-        let contained_blocks: Vec<_> = blocks
-            .iter()
-            .filter(|b| bbox.overlaps(&b.bbox))
-            .collect();
+        let contained_blocks: Vec<_> = blocks.iter().filter(|b| bbox.overlaps(&b.bbox)).collect();
 
         if contained_blocks.len() < 4 {
             return None;
@@ -322,11 +317,8 @@ impl ElementDetector {
 
         // Check for common list markers
         let patterns = [
-            "• ", "・", "- ", "– ", "— ", "* ",
-            "1. ", "2. ", "3. ", "4. ", "5. ",
-            "a) ", "b) ", "c) ",
-            "(1)", "(2)", "(3)",
-            "①", "②", "③", "④", "⑤",
+            "• ", "・", "- ", "– ", "— ", "* ", "1. ", "2. ", "3. ", "4. ", "5. ", "a) ", "b) ",
+            "c) ", "(1)", "(2)", "(3)", "①", "②", "③", "④", "⑤",
         ];
 
         patterns.iter().any(|p| trimmed.starts_with(p))

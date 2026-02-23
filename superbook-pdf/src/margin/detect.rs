@@ -13,6 +13,13 @@ use super::types::UnifiedMargins;
 /// Default margin detector implementation
 pub struct ImageMarginDetector;
 
+/// Safety buffer as a fraction of the image dimension.
+/// Applied outward from the detected content boundary to prevent clipping.
+const SAFETY_BUFFER_RATIO: f64 = 0.03; // 3% of image dimension (increased from 2% to prevent left-margin clipping)
+
+/// Minimum absolute safety buffer in pixels
+const MIN_SAFETY_BUFFER_PX: u32 = 5;
+
 impl ImageMarginDetector {
     /// Detect margins in a single image
     pub fn detect(image_path: &Path, options: &MarginOptions) -> Result<MarginDetection> {
@@ -44,11 +51,15 @@ impl ImageMarginDetector {
             }
         };
 
+        // Apply content-density-based safety buffer to prevent clipping
+        let v_buffer = ((height as f64 * SAFETY_BUFFER_RATIO) as u32).max(MIN_SAFETY_BUFFER_PX);
+        let h_buffer = ((width as f64 * SAFETY_BUFFER_RATIO) as u32).max(MIN_SAFETY_BUFFER_PX);
+
         let margins = Margins {
-            top: top.max(options.min_margin),
-            bottom: bottom.max(options.min_margin),
-            left: left.max(options.min_margin),
-            right: right.max(options.min_margin),
+            top: top.saturating_sub(v_buffer).max(options.min_margin),
+            bottom: bottom.saturating_sub(v_buffer).max(options.min_margin),
+            left: left.saturating_sub(h_buffer).max(options.min_margin),
+            right: right.saturating_sub(h_buffer).max(options.min_margin),
         };
 
         let content_width = width.saturating_sub(margins.total_horizontal());
@@ -99,6 +110,10 @@ impl ImageMarginDetector {
         (top, bottom, left, right)
     }
 
+    /// Content detection threshold: fraction of row/col pixels that must be
+    /// non-background to count as content. Lower = more conservative (less clipping).
+    const CONTENT_THRESHOLD: f32 = 0.03; // 3% (was 10%)
+
     /// Find where content starts vertically
     fn find_content_start_vertical<F>(gray: &GrayImage, is_background: F, from_top: bool) -> u32
     where
@@ -116,8 +131,7 @@ impl ImageMarginDetector {
                 .filter(|&x| !is_background(gray.get_pixel(x, y)))
                 .count();
 
-            // 10% or more non-background pixels means content start
-            if non_bg_count as f32 / width as f32 > 0.1 {
+            if non_bg_count as f32 / width as f32 > Self::CONTENT_THRESHOLD {
                 return if from_top { y } else { height - y };
             }
         }
@@ -142,7 +156,7 @@ impl ImageMarginDetector {
                 .filter(|&y| !is_background(gray.get_pixel(x, y)))
                 .count();
 
-            if non_bg_count as f32 / height as f32 > 0.1 {
+            if non_bg_count as f32 / height as f32 > Self::CONTENT_THRESHOLD {
                 return if from_left { x } else { width - x };
             }
         }

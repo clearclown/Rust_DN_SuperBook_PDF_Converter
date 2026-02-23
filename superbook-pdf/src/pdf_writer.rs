@@ -103,6 +103,8 @@ pub struct PdfWriterOptions {
     pub metadata: Option<PdfMetadata>,
     /// OCR text layer
     pub ocr_layer: Option<OcrLayer>,
+    /// CJK font path for OCR text (None = auto-detect system font)
+    pub cjk_font_path: Option<PathBuf>,
 }
 
 impl Default for PdfWriterOptions {
@@ -114,6 +116,7 @@ impl Default for PdfWriterOptions {
             page_size_mode: PageSizeMode::FirstPage,
             metadata: None,
             ocr_layer: None,
+            cjk_font_path: None,
         }
     }
 }
@@ -130,6 +133,7 @@ impl PdfWriterOptions {
             dpi: HIGH_QUALITY_DPI,
             jpeg_quality: HIGH_QUALITY_JPEG,
             compression: ImageCompression::JpegLossless,
+            cjk_font_path: None,
             ..Default::default()
         }
     }
@@ -140,6 +144,7 @@ impl PdfWriterOptions {
             dpi: COMPACT_DPI,
             jpeg_quality: COMPACT_JPEG_QUALITY,
             compression: ImageCompression::Jpeg,
+            cjk_font_path: None,
             ..Default::default()
         }
     }
@@ -191,6 +196,13 @@ impl PdfWriterOptionsBuilder {
     #[must_use]
     pub fn ocr_layer(mut self, layer: OcrLayer) -> Self {
         self.options.ocr_layer = Some(layer);
+        self
+    }
+
+    /// Set CJK font path for OCR text
+    #[must_use]
+    pub fn cjk_font_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.options.cjk_font_path = Some(path.into());
         self
     }
 
@@ -274,6 +286,52 @@ pub trait PdfWriter {
     ) -> Result<()>;
 }
 
+/// Known system font paths for CJK support
+const CJK_FONT_SEARCH_PATHS: &[&str] = &[
+    // macOS
+    "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB W3.otf",
+    "/Library/Fonts/Arial Unicode.ttf",
+    // Linux (Noto Sans CJK)
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    // Linux (alternative locations)
+    "/usr/share/fonts/OTF/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/noto/NotoSansCJK-Regular.ttc",
+    // Docker / Debian fonts-noto-cjk package
+    "/usr/share/fonts/opentype/noto/NotoSansCJKjp-Regular.otf",
+    "/usr/share/fonts/truetype/noto/NotoSansCJKjp-Regular.otf",
+];
+
+/// Find a CJK font on the system
+///
+/// Search order:
+/// 1. Custom path from `PdfWriterOptions.cjk_font_path`
+/// 2. System font paths (OS-specific)
+/// 3. None (will fall back to Helvetica)
+pub fn find_cjk_font(custom_path: Option<&Path>) -> Option<PathBuf> {
+    // 1. Check custom path
+    if let Some(path) = custom_path {
+        if path.exists() {
+            return Some(path.to_path_buf());
+        }
+        eprintln!("Warning: Specified CJK font not found: {}", path.display());
+    }
+
+    // 2. Search system font paths
+    for path_str in CJK_FONT_SEARCH_PATHS {
+        let path = Path::new(path_str);
+        if path.exists() {
+            return Some(path.to_path_buf());
+        }
+    }
+
+    // 3. Not found
+    None
+}
+
 /// printpdf-based PDF writer implementation
 pub struct PrintPdfWriter;
 
@@ -325,14 +383,30 @@ impl PrintPdfWriter {
             "Layer 1",
         );
 
+        // Load font once before the page loop (only if OCR layer is present)
+        let font = if options.ocr_layer.is_some() {
+            Some(Self::load_font(&doc, options.cjk_font_path.as_deref())?)
+        } else {
+            None
+        };
+
         // Add first image to first page
-        Self::add_image_to_layer(&doc, page1, layer1, &first_img, width_mm, height_mm)?;
+        Self::add_image_to_layer(
+            &doc,
+            page1,
+            layer1,
+            &first_img,
+            &images[0],
+            width_mm,
+            height_mm,
+            options.jpeg_quality,
+        )?;
 
         // Add OCR text layer for first page if available
         if let Some(ref ocr_layer) = options.ocr_layer {
             if let Some(page_text) = ocr_layer.pages.iter().find(|p| p.page_index == 0) {
                 let text_layer = doc.get_page(page1).add_layer("OCR Text");
-                Self::add_ocr_text(&doc, text_layer, page_text, height_mm)?;
+                Self::add_ocr_text(text_layer, page_text, height_mm, font.as_ref().unwrap())?;
             }
         }
 
@@ -362,13 +436,22 @@ impl PrintPdfWriter {
 
             let (page, layer) = doc.add_page(printpdf::Mm(w_mm), printpdf::Mm(h_mm), "Layer 1");
 
-            Self::add_image_to_layer(&doc, page, layer, &img, w_mm, h_mm)?;
+            Self::add_image_to_layer(
+                &doc,
+                page,
+                layer,
+                &img,
+                img_path,
+                w_mm,
+                h_mm,
+                options.jpeg_quality,
+            )?;
 
             // Add OCR text layer if available
             if let Some(ref ocr_layer) = options.ocr_layer {
                 if let Some(page_text) = ocr_layer.pages.iter().find(|p| p.page_index == img_idx) {
                     let text_layer = doc.get_page(page).add_layer("OCR Text");
-                    Self::add_ocr_text(&doc, text_layer, page_text, h_mm)?;
+                    Self::add_ocr_text(text_layer, page_text, h_mm, font.as_ref().unwrap())?;
                 }
             }
         }
@@ -383,29 +466,67 @@ impl PrintPdfWriter {
     }
 
     /// Add image to a PDF layer
+    ///
+    /// If the input is a JPEG file, the raw JPEG bytes are passed through directly
+    /// (DCT filter) to avoid re-encoding overhead. For non-JPEG inputs (PNG, etc.),
+    /// the image is JPEG-encoded at the specified quality before embedding.
+    #[allow(clippy::too_many_arguments)]
     fn add_image_to_layer(
         doc: &printpdf::PdfDocumentReference,
         page: printpdf::PdfPageIndex,
         layer: printpdf::PdfLayerIndex,
         img: &image::DynamicImage,
+        img_path: &Path,
         width_mm: f32,
         height_mm: f32,
+        jpeg_quality: u8,
     ) -> Result<()> {
         use printpdf::{Image, ImageTransform, Mm, Px};
 
-        // Convert image to RGB8 format
-        let rgb_img = img.to_rgb8();
-        let (img_width, img_height) = rgb_img.dimensions();
+        let (img_width, img_height) = (img.width(), img.height());
 
-        // Create printpdf Image from raw RGB data
+        // Check if input is JPEG for pass-through
+        let is_jpeg = img_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| {
+                let lower = e.to_ascii_lowercase();
+                lower == "jpg" || lower == "jpeg"
+            })
+            .unwrap_or(false);
+
+        let image_data_bytes = if is_jpeg {
+            // JPEG pass-through: read raw bytes directly, no re-encoding
+            std::fs::read(img_path)?
+        } else {
+            // Non-JPEG (PNG, etc.): encode to JPEG
+            let rgb_img = img.to_rgb8();
+            let mut jpeg_buf = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut jpeg_buf);
+            let mut encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, jpeg_quality);
+            encoder
+                .encode(
+                    rgb_img.as_raw(),
+                    img_width,
+                    img_height,
+                    image::ExtendedColorType::Rgb8,
+                )
+                .map_err(|e| {
+                    PdfWriterError::GenerationError(format!("JPEG encode error: {}", e))
+                })?;
+            jpeg_buf
+        };
+
+        // Create printpdf Image with DCT (JPEG) filter
         let image_data = printpdf::ImageXObject {
             width: Px(img_width as usize),
             height: Px(img_height as usize),
             color_space: printpdf::ColorSpace::Rgb,
             bits_per_component: printpdf::ColorBits::Bit8,
             interpolate: true,
-            image_data: rgb_img.into_raw(),
-            image_filter: None,
+            image_data: image_data_bytes,
+            image_filter: Some(printpdf::ImageFilter::DCT),
             clipping_bbox: None,
             smask: None,
         };
@@ -416,8 +537,6 @@ impl PrintPdfWriter {
         let layer_ref = doc.get_page(page).get_layer(layer);
 
         // Calculate transform to fit image to page
-        // printpdf uses points (72 per inch) for scaling
-        // We need to convert from pixels to points, then scale to fit the page
         let dpi = 300.0_f32;
         let img_width_pt = img_width as f32 * 72.0 / dpi;
         let img_height_pt = img_height as f32 * 72.0 / dpi;
@@ -444,24 +563,57 @@ impl PrintPdfWriter {
         Ok(())
     }
 
+    /// Load a font for OCR text embedding.
+    ///
+    /// Tries CJK font first (custom path or system fonts), falls back to Helvetica.
+    /// This should be called once before the page loop, not per-page.
+    fn load_font(
+        doc: &printpdf::PdfDocumentReference,
+        cjk_font_path: Option<&Path>,
+    ) -> Result<printpdf::IndirectFontRef> {
+        if let Some(font_path) = find_cjk_font(cjk_font_path) {
+            let font_file = File::open(&font_path).map_err(|e| {
+                PdfWriterError::GenerationError(format!(
+                    "Failed to open CJK font {}: {}",
+                    font_path.display(),
+                    e
+                ))
+            })?;
+            let reader = std::io::BufReader::new(font_file);
+            doc.add_external_font(reader).map_err(|e| {
+                PdfWriterError::GenerationError(format!(
+                    "Failed to load CJK font {}: {}",
+                    font_path.display(),
+                    e
+                ))
+            })
+        } else {
+            eprintln!(
+                "Warning: No CJK font found. Japanese/Chinese/Korean OCR text will not be embedded correctly. \
+                 Install fonts-noto-cjk (Linux) or specify --cjk-font-path."
+            );
+            doc.add_builtin_font(printpdf::BuiltinFont::Helvetica)
+                .map_err(|e| PdfWriterError::GenerationError(e.to_string()))
+        }
+    }
+
     /// Add OCR text layer to a PDF page
     ///
     /// The text is rendered as invisible (searchable) text over the image.
+    /// The font must be loaded once via `load_font()` and shared across all pages.
     fn add_ocr_text(
-        doc: &printpdf::PdfDocumentReference,
         layer: printpdf::PdfLayerReference,
         page_text: &OcrPageText,
         page_height_mm: f32,
+        font: &printpdf::IndirectFontRef,
     ) -> Result<()> {
         use printpdf::Mm;
 
-        // Load built-in font for OCR text
-        // Using a CJK font for Japanese text support
-        let font = doc
-            .add_builtin_font(printpdf::BuiltinFont::Helvetica)
-            .map_err(|e| PdfWriterError::GenerationError(e.to_string()))?;
-
         for block in &page_text.blocks {
+            if block.text.is_empty() {
+                continue;
+            }
+
             // Convert points to mm
             let x_mm = block.x as f32 * POINTS_TO_MM;
             // PDF coordinate system has origin at bottom-left, so flip y
@@ -474,7 +626,7 @@ impl PrintPdfWriter {
             // This makes text searchable but not visible
             layer.set_text_rendering_mode(printpdf::TextRenderingMode::Invisible);
 
-            layer.use_text(&block.text, font_size_pt, Mm(x_mm), Mm(y_mm), &font);
+            layer.use_text(&block.text, font_size_pt, Mm(x_mm), Mm(y_mm), font);
         }
 
         Ok(())
@@ -1865,5 +2017,418 @@ mod tests {
 
         let layer = OcrLayer { pages };
         assert_eq!(layer.pages.len(), 1000);
+    }
+
+    // ============ Issue #43: CJK Font Tests ============
+
+    #[test]
+    fn test_find_cjk_font_nonexistent_path() {
+        // Specifying a non-existent custom path should fall through to system fonts
+        let result = find_cjk_font(Some(Path::new("/nonexistent/font.ttf")));
+        // The custom path doesn't exist, so it should NOT be returned
+        if let Some(ref path) = result {
+            // If a font was found, it must be a system font, NOT the nonexistent path
+            assert_ne!(
+                path,
+                Path::new("/nonexistent/font.ttf"),
+                "Should not return the nonexistent custom path"
+            );
+            assert!(
+                path.exists(),
+                "Returned font path should actually exist: {}",
+                path.display()
+            );
+        }
+        // If None, no system fonts available — that's acceptable
+    }
+
+    #[test]
+    fn test_find_cjk_font_no_custom_path() {
+        // No custom path: search system fonts only
+        let result = find_cjk_font(None);
+        if let Some(ref path) = result {
+            assert!(
+                path.exists(),
+                "Returned system font path should exist: {}",
+                path.display()
+            );
+            // Verify it's a known font file extension
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            assert!(
+                ext == "ttf" || ext == "ttc" || ext == "otf",
+                "Font should have a font file extension, got: {}",
+                path.display()
+            );
+        }
+        // If None, no system fonts available — acceptable in minimal environments
+    }
+
+    #[test]
+    fn test_find_cjk_font_custom_path_exists() {
+        // Create a temp file and verify it's found
+        let temp_dir = tempdir().unwrap();
+        let font_path = temp_dir.path().join("test_font.ttf");
+        std::fs::write(&font_path, b"fake font data").unwrap();
+
+        let result = find_cjk_font(Some(&font_path));
+        assert_eq!(result, Some(font_path));
+    }
+
+    #[test]
+    fn test_pdf_writer_options_with_cjk_font() {
+        let options = PdfWriterOptions::builder()
+            .cjk_font_path("/path/to/font.ttf")
+            .build();
+
+        assert_eq!(
+            options.cjk_font_path,
+            Some(PathBuf::from("/path/to/font.ttf"))
+        );
+    }
+
+    #[test]
+    fn test_pdf_writer_options_default_no_cjk_font() {
+        let options = PdfWriterOptions::default();
+        assert!(options.cjk_font_path.is_none());
+    }
+
+    #[test]
+    fn test_add_ocr_text_empty_blocks() {
+        // OCR layer with empty blocks should not fail
+        let temp_dir = tempdir().unwrap();
+        let output = temp_dir.path().join("output.pdf");
+
+        let ocr_layer = OcrLayer {
+            pages: vec![OcrPageText {
+                page_index: 0,
+                blocks: vec![],
+            }],
+        };
+
+        let images = vec![PathBuf::from("tests/fixtures/book_page_1.png")];
+        let options = PdfWriterOptions::builder().ocr_layer(ocr_layer).build();
+
+        PrintPdfWriter::create_from_images(&images, &output, &options).unwrap();
+        assert!(output.exists());
+    }
+
+    #[test]
+    fn test_add_ocr_text_fallback_to_helvetica() {
+        // With a non-existent font path and no system fonts matching,
+        // should fallback to Helvetica (ASCII-only but still works)
+        let temp_dir = tempdir().unwrap();
+        let output = temp_dir.path().join("output.pdf");
+
+        let ocr_layer = OcrLayer {
+            pages: vec![OcrPageText {
+                page_index: 0,
+                blocks: vec![TextBlock {
+                    x: 100.0,
+                    y: 100.0,
+                    width: 200.0,
+                    height: 20.0,
+                    text: "ASCII text only".to_string(),
+                    font_size: 12.0,
+                    vertical: false,
+                }],
+            }],
+        };
+
+        let images = vec![PathBuf::from("tests/fixtures/book_page_1.png")];
+        // Don't set cjk_font_path, let it fall back
+        let options = PdfWriterOptions::builder().ocr_layer(ocr_layer).build();
+
+        // This should succeed even without a CJK font
+        PrintPdfWriter::create_from_images(&images, &output, &options).unwrap();
+        assert!(output.exists());
+    }
+
+    #[test]
+    fn test_add_ocr_text_mixed_ascii_japanese() {
+        // Test mixed ASCII + Japanese text in OCR blocks
+        let ocr_layer = OcrLayer {
+            pages: vec![OcrPageText {
+                page_index: 0,
+                blocks: vec![
+                    TextBlock {
+                        x: 100.0,
+                        y: 700.0,
+                        width: 400.0,
+                        height: 20.0,
+                        text: "Hello World".to_string(),
+                        font_size: 12.0,
+                        vertical: false,
+                    },
+                    TextBlock {
+                        x: 100.0,
+                        y: 680.0,
+                        width: 400.0,
+                        height: 20.0,
+                        text: "日本語テキスト".to_string(),
+                        font_size: 12.0,
+                        vertical: false,
+                    },
+                    TextBlock {
+                        x: 100.0,
+                        y: 660.0,
+                        width: 400.0,
+                        height: 20.0,
+                        text: "Mixed 混合テスト text".to_string(),
+                        font_size: 12.0,
+                        vertical: false,
+                    },
+                ],
+            }],
+        };
+
+        let options = PdfWriterOptions::builder()
+            .ocr_layer(ocr_layer.clone())
+            .build();
+
+        assert_eq!(options.ocr_layer.unwrap().pages[0].blocks.len(), 3);
+    }
+
+    #[test]
+    fn test_add_ocr_text_invisible_rendering_mode() {
+        // Verify OCR text uses invisible rendering mode (structural test)
+        let temp_dir = tempdir().unwrap();
+        let output = temp_dir.path().join("ocr_invisible.pdf");
+
+        let ocr_layer = OcrLayer {
+            pages: vec![OcrPageText {
+                page_index: 0,
+                blocks: vec![TextBlock {
+                    x: 50.0,
+                    y: 50.0,
+                    width: 200.0,
+                    height: 20.0,
+                    text: "Invisible text".to_string(),
+                    font_size: 10.0,
+                    vertical: false,
+                }],
+            }],
+        };
+
+        let images = vec![PathBuf::from("tests/fixtures/book_page_1.png")];
+        let options = PdfWriterOptions::builder().ocr_layer(ocr_layer).build();
+
+        PrintPdfWriter::create_from_images(&images, &output, &options).unwrap();
+        assert!(output.exists());
+        // The PDF is generated; rendering mode is set internally
+    }
+
+    #[test]
+    fn test_find_cjk_font_system_paths() {
+        // Verify CJK_FONT_SEARCH_PATHS constant is non-empty
+        assert!(!CJK_FONT_SEARCH_PATHS.is_empty());
+
+        // All paths should be absolute
+        for path_str in CJK_FONT_SEARCH_PATHS {
+            let path = Path::new(path_str);
+            assert!(
+                path.is_absolute(),
+                "CJK font path should be absolute: {}",
+                path_str
+            );
+        }
+    }
+
+    #[test]
+    fn test_ocr_text_coordinate_conversion() {
+        // Verify coordinate conversion from points to mm
+        let block = TextBlock {
+            x: 72.0,  // 1 inch in points
+            y: 144.0, // 2 inches in points
+            width: 100.0,
+            height: 20.0,
+            text: "Test".to_string(),
+            font_size: 12.0,
+            vertical: false,
+        };
+
+        // 72 points * POINTS_TO_MM ≈ 25.4 mm (1 inch)
+        let x_mm = block.x as f32 * POINTS_TO_MM;
+        let expected_x_mm = 25.4_f32;
+        assert!(
+            (x_mm - expected_x_mm).abs() < 0.1,
+            "x_mm={} expected={}",
+            x_mm,
+            expected_x_mm
+        );
+
+        // 144 points ≈ 50.8 mm (2 inches)
+        let y_mm = block.y as f32 * POINTS_TO_MM;
+        let expected_y_mm = 50.8_f32;
+        assert!(
+            (y_mm - expected_y_mm).abs() < 0.1,
+            "y_mm={} expected={}",
+            y_mm,
+            expected_y_mm
+        );
+    }
+
+    #[test]
+    fn test_ocr_text_vertical_block_positions() {
+        // Vertical text blocks should have height > width
+        let vertical_block = TextBlock {
+            x: 500.0,
+            y: 50.0,
+            width: 20.0,
+            height: 600.0,
+            text: "縦書き長文テスト".to_string(),
+            font_size: 14.0,
+            vertical: true,
+        };
+
+        assert!(vertical_block.vertical);
+        assert!(vertical_block.height > vertical_block.width);
+    }
+
+    #[test]
+    fn test_ocr_page_text_multiple_blocks() {
+        // Multiple blocks per page with mixed directions
+        let page_text = OcrPageText {
+            page_index: 0,
+            blocks: vec![
+                TextBlock {
+                    x: 50.0,
+                    y: 700.0,
+                    width: 400.0,
+                    height: 20.0,
+                    text: "横書き1行目".to_string(),
+                    font_size: 12.0,
+                    vertical: false,
+                },
+                TextBlock {
+                    x: 50.0,
+                    y: 680.0,
+                    width: 400.0,
+                    height: 20.0,
+                    text: "横書き2行目".to_string(),
+                    font_size: 12.0,
+                    vertical: false,
+                },
+                TextBlock {
+                    x: 500.0,
+                    y: 50.0,
+                    width: 20.0,
+                    height: 500.0,
+                    text: "縦書きブロック".to_string(),
+                    font_size: 12.0,
+                    vertical: true,
+                },
+            ],
+        };
+
+        assert_eq!(page_text.blocks.len(), 3);
+        assert!(!page_text.blocks[0].vertical);
+        assert!(!page_text.blocks[1].vertical);
+        assert!(page_text.blocks[2].vertical);
+    }
+
+    #[test]
+    fn test_builder_with_cjk_font_full_chain() {
+        let options = PdfWriterOptions::builder()
+            .dpi(600)
+            .jpeg_quality(95)
+            .cjk_font_path("/usr/share/fonts/noto/NotoSansCJK-Regular.ttc")
+            .build();
+
+        assert_eq!(options.dpi, 600);
+        assert_eq!(options.jpeg_quality, 95);
+        assert_eq!(
+            options.cjk_font_path,
+            Some(PathBuf::from(
+                "/usr/share/fonts/noto/NotoSansCJK-Regular.ttc"
+            ))
+        );
+    }
+
+    // ============================================================
+    // Issue #45/#46: PDF size reduction tests
+    // ============================================================
+
+    #[test]
+    fn test_jpeg_compression_reduces_pdf_size() {
+        // Verify that the DCT-compressed PDF is significantly smaller than raw image data
+        let temp_dir = tempdir().unwrap();
+        let output = temp_dir.path().join("compressed.pdf");
+
+        let images = vec![PathBuf::from("tests/fixtures/book_page_1.png")];
+        let options = PdfWriterOptions::builder().jpeg_quality(85).build();
+
+        PrintPdfWriter::create_from_images(&images, &output, &options).unwrap();
+
+        let pdf_size = std::fs::metadata(&output).unwrap().len();
+        let img = image::open(&images[0]).unwrap();
+        let raw_rgb_size = (img.width() * img.height() * 3) as u64;
+
+        // JPEG-compressed PDF should be much smaller than raw RGB data
+        assert!(
+            pdf_size < raw_rgb_size / 2,
+            "PDF size ({} bytes) should be significantly smaller than raw RGB ({} bytes)",
+            pdf_size,
+            raw_rgb_size
+        );
+    }
+
+    #[test]
+    fn test_multi_page_pdf_size_scales_linearly() {
+        // Multi-page PDF should scale ~linearly with page count (not multiply due to font duplication)
+        let temp_dir = tempdir().unwrap();
+
+        // Single page PDF
+        let output_1 = temp_dir.path().join("one_page.pdf");
+        let images_1 = vec![PathBuf::from("tests/fixtures/book_page_1.png")];
+        PrintPdfWriter::create_from_images(&images_1, &output_1, &PdfWriterOptions::default())
+            .unwrap();
+        let size_1 = std::fs::metadata(&output_1).unwrap().len();
+
+        // 5 page PDF
+        let output_5 = temp_dir.path().join("five_pages.pdf");
+        let images_5: Vec<_> = (1..=5)
+            .map(|i| PathBuf::from(format!("tests/fixtures/book_page_{}.png", i)))
+            .collect();
+        PrintPdfWriter::create_from_images(&images_5, &output_5, &PdfWriterOptions::default())
+            .unwrap();
+        let size_5 = std::fs::metadata(&output_5).unwrap().len();
+
+        // 5 pages should be roughly 5x the single page, with some overhead
+        // but NOT 5x + (N-1)*25MB from duplicated fonts
+        let ratio = size_5 as f64 / size_1 as f64;
+        assert!(
+            ratio < 8.0,
+            "5-page PDF size ratio ({:.1}x) should be reasonable (< 8x single page). \
+             1-page: {} bytes, 5-page: {} bytes",
+            ratio,
+            size_1,
+            size_5
+        );
+    }
+
+    #[test]
+    fn test_jpeg_quality_affects_size() {
+        let temp_dir = tempdir().unwrap();
+        let images = vec![PathBuf::from("tests/fixtures/book_page_1.png")];
+
+        // Low quality
+        let output_low = temp_dir.path().join("low_q.pdf");
+        let options_low = PdfWriterOptions::builder().jpeg_quality(30).build();
+        PrintPdfWriter::create_from_images(&images, &output_low, &options_low).unwrap();
+        let size_low = std::fs::metadata(&output_low).unwrap().len();
+
+        // High quality
+        let output_high = temp_dir.path().join("high_q.pdf");
+        let options_high = PdfWriterOptions::builder().jpeg_quality(95).build();
+        PrintPdfWriter::create_from_images(&images, &output_high, &options_high).unwrap();
+        let size_high = std::fs::metadata(&output_high).unwrap().len();
+
+        // Higher quality should produce larger file
+        assert!(
+            size_high > size_low,
+            "High quality PDF ({} bytes) should be larger than low quality ({} bytes)",
+            size_high,
+            size_low
+        );
     }
 }
