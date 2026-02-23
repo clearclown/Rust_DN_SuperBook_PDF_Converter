@@ -443,8 +443,7 @@ impl ImageProcDeskewer {
     ///
     /// Returns `true` if the image appears to be rotated 180 degrees.
     pub fn detect_upside_down(image_path: &Path) -> std::result::Result<bool, DeskewError> {
-        let img =
-            image::open(image_path).map_err(|e| DeskewError::InvalidFormat(e.to_string()))?;
+        let img = image::open(image_path).map_err(|e| DeskewError::InvalidFormat(e.to_string()))?;
         let gray = img.to_luma8();
         Ok(Self::is_upside_down(&gray))
     }
@@ -510,8 +509,7 @@ impl ImageProcDeskewer {
         image_path: &Path,
         output_path: &Path,
     ) -> std::result::Result<(), DeskewError> {
-        let img =
-            image::open(image_path).map_err(|e| DeskewError::InvalidFormat(e.to_string()))?;
+        let img = image::open(image_path).map_err(|e| DeskewError::InvalidFormat(e.to_string()))?;
         let rotated = img.rotate180();
         rotated
             .save(output_path)

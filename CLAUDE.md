@@ -153,15 +153,17 @@ cargo test test_otsu_threshold
 ## Processing Pipeline
 
 1. **PDF Image Extraction** - pdftoppm for high-resolution extraction
-2. **Deskew Correction** - Otsu binarization + Hough transform
-3. **Margin Trimming** - 0.5% margin removal
+2. **Margin Trimming** - 0.7% content-aware margin removal
+3. **Shadow Removal** - Book binding shadow detection/removal
 4. **AI Upscaling** - RealESRGAN 2x
-5. **Color Correction** - HSV bleed-through suppression
-6. **Page Number Detection** - 4-stage fallback matching
-7. **Offset Alignment** - Group-based reference position
-8. **Uniform Margins** - Consistent margins across pages
-9. **PDF Generation** - Metadata sync
-10. **OCR (Optional)** - YomiToku Japanese AI OCR
+5. **Deblur** - Unsharp Mask / NAFNet / DeblurGAN-v2
+6. **Rotation Detection** - 180-degree upside-down detection via ink density
+7. **Deskew Correction** - Otsu binarization + Hough transform
+8. **Color Correction** - HSV bleed-through suppression (enabled by default)
+9. **Marker Removal** - Highlighter marker detection/removal
+10. **Group Crop** - Uniform margins across pages
+11. **PDF Generation** - JPEG DCT compression, metadata sync
+12. **OCR (Optional)** - YomiToku Japanese AI OCR
 
 ---
 

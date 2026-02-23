@@ -191,10 +191,8 @@ impl MarkdownGenerator {
             }
             PageClassification::Mixed { figures } => {
                 // Filter and sort text blocks
-                let filtered =
-                    Self::filter_low_confidence(&ocr_result.text_blocks);
-                let sorted_blocks =
-                    Self::sort_text_blocks(&filtered, &ocr_result.text_direction);
+                let filtered = Self::filter_low_confidence(&ocr_result.text_blocks);
+                let sorted_blocks = Self::sort_text_blocks(&filtered, &ocr_result.text_direction);
 
                 // Calculate metrics for heading/paragraph detection
                 let median_size = Self::median_font_size(&sorted_blocks);
@@ -215,7 +213,9 @@ impl MarkdownGenerator {
                             // Flush accumulated text blocks as structured text
                             if !current_blocks.is_empty() {
                                 let text = Self::format_block_group(
-                                    &current_blocks, median_size, median_height,
+                                    &current_blocks,
+                                    median_size,
+                                    median_height,
                                 );
                                 if !text.is_empty() {
                                     elements.push(ContentElement::Text {
@@ -244,9 +244,8 @@ impl MarkdownGenerator {
 
                 // Flush remaining text blocks
                 if !current_blocks.is_empty() {
-                    let text = Self::format_block_group(
-                        &current_blocks, median_size, median_height,
-                    );
+                    let text =
+                        Self::format_block_group(&current_blocks, median_size, median_height);
                     if !text.is_empty() {
                         elements.push(ContentElement::Text {
                             content: text,
@@ -446,15 +445,37 @@ impl MarkdownGenerator {
             let tail = &result[last_space + 1..];
             let tail_chars: usize = tail.chars().count();
             if (1..=3).contains(&tail_chars) {
-                let meaningful = tail.chars().filter(|c| {
-                    (c.is_alphanumeric() && !c.is_ascii_digit())
-                        || *c == '。' || *c == '、' || *c == '」' || *c == '「'
-                }).count();
+                let meaningful = tail
+                    .chars()
+                    .filter(|c| {
+                        (c.is_alphanumeric() && !c.is_ascii_digit())
+                            || *c == '。'
+                            || *c == '、'
+                            || *c == '」'
+                            || *c == '「'
+                    })
+                    .count();
                 if meaningful <= 1 {
                     let is_real_word = tail.chars().count() == 1
                         && tail.chars().next().is_some_and(|c| {
-                            matches!(c, 'の' | 'は' | 'が' | 'を' | 'に' | 'で' | 'と' | 'も'
-                                | 'か' | 'な' | 'だ' | 'る' | 'た' | 'て' | 'へ' | 'や')
+                            matches!(
+                                c,
+                                'の' | 'は'
+                                    | 'が'
+                                    | 'を'
+                                    | 'に'
+                                    | 'で'
+                                    | 'と'
+                                    | 'も'
+                                    | 'か'
+                                    | 'な'
+                                    | 'だ'
+                                    | 'る'
+                                    | 'た'
+                                    | 'て'
+                                    | 'へ'
+                                    | 'や'
+                            )
                         });
                     if !is_real_word {
                         result = result[..last_space].trim_end();
@@ -464,9 +485,7 @@ impl MarkdownGenerator {
         }
 
         // Pass 2: strip trailing repeated punctuation like "。。", "··"
-        let trimmed_end = result.trim_end_matches(|c: char| {
-            c == '。' || c == '·' || c == '・' || c == '.' || c == ','
-        });
+        let trimmed_end = result.trim_end_matches(['。', '·', '・', '.', ',']);
         // Only strip if we removed 2+ punctuation chars (to avoid stripping single valid 。)
         if result.len() - trimmed_end.len() >= 2 * '。'.len_utf8() {
             result = trimmed_end.trim_end();
@@ -492,8 +511,14 @@ impl MarkdownGenerator {
             .chars()
             .filter(|c| {
                 c.is_ascii_digit()
-                    || (*c != '。' && *c != '、' && *c != '」' && *c != '「'
-                        && *c != '）' && *c != '（' && *c != '『' && *c != '』'
+                    || (*c != '。'
+                        && *c != '、'
+                        && *c != '」'
+                        && *c != '「'
+                        && *c != '）'
+                        && *c != '（'
+                        && *c != '『'
+                        && *c != '』'
                         && c.is_ascii_punctuation())
             })
             .count();
@@ -717,7 +742,8 @@ impl MarkdownGenerator {
                     continue;
                 }
                 // Near-duplicate: one is prefix of the other (OCR noise at end)
-                if prev.len() >= 5 && trimmed.len() >= 5
+                if prev.len() >= 5
+                    && trimmed.len() >= 5
                     && (prev.starts_with(trimmed) || trimmed.starts_with(prev.as_str()))
                 {
                     continue;
@@ -734,8 +760,7 @@ impl MarkdownGenerator {
             {
                 // Keep meaningful short strings: pure numbers, ASCII words
                 let is_meaningful = trimmed.chars().all(|c| c.is_ascii_digit())
-                    || (trimmed.len() >= 2
-                        && trimmed.chars().all(|c| c.is_ascii_alphanumeric()));
+                    || (trimmed.len() >= 2 && trimmed.chars().all(|c| c.is_ascii_alphanumeric()));
                 if !is_meaningful {
                     continue; // Skip stray chars like "め", "ゆ", "パ", "。", "m。", """
                 }
@@ -1695,7 +1720,9 @@ mod tests {
         assert!(MarkdownGenerator::is_furigana_line("さとみ ゆうすけ"));
         assert!(MarkdownGenerator::is_furigana_line("たなか たろう"));
         assert!(MarkdownGenerator::is_furigana_line("カタカナ テスト"));
-        assert!(!MarkdownGenerator::is_furigana_line("これは長い文章なので振り仮名ではないと判定されるべきです"));
+        assert!(!MarkdownGenerator::is_furigana_line(
+            "これは長い文章なので振り仮名ではないと判定されるべきです"
+        ));
         assert!(!MarkdownGenerator::is_furigana_line("漢字テスト"));
         assert!(!MarkdownGenerator::is_furigana_line("hello"));
         assert!(!MarkdownGenerator::is_furigana_line("あ")); // too short

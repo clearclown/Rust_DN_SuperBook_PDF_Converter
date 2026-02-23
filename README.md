@@ -1,8 +1,8 @@
 # superbook-pdf
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Rust](https://img.shields.io/badge/rust-1.78%2B-orange.svg)](https://www.rust-lang.org/)
-[![crates.io](https://img.shields.io/crates/v/superbook-pdf.svg)](https://crates.io/crates/superbook-pdf)
+[![Rust](https://img.shields.io/badge/rust-1.82%2B-orange.svg)](https://www.rust-lang.org/)
+[![CI](https://github.com/clearclown/Rust_DN_SuperBook_PDF_Converter/actions/workflows/ci.yml/badge.svg)](https://github.com/clearclown/Rust_DN_SuperBook_PDF_Converter/actions/workflows/ci.yml)
 
 > **Fork of [dnobori/DN_SuperBook_PDF_Converter](https://github.com/dnobori/DN_SuperBook_PDF_Converter)**
 >
@@ -22,7 +22,7 @@
 
 | | Before (左) | After (右) |
 |---|---|---|
-| **解像度** | 1242×2048 px | 2363×3508 px |
+| **解像度** | 1242x2048 px | 2363x3508 px |
 | **ファイルサイズ** | 981 KB | 1.6 MB |
 | **品質** | ぼやけ、低コントラスト | 鮮明、高コントラスト |
 
@@ -32,19 +32,171 @@ RealESRGAN による AI 超解像で、文字のエッジが鮮明になり、�
 
 ## 特徴
 
-- **Rust 実装** - C# 版を完全リライト。メモリ効率が大幅に改善されています
-- **AI 超解像** - RealESRGAN で画像を高解像度化
-- **日本語 OCR** - YomiToku による文字認識
+- **Rust 実装** - C# 版を完全リライト。メモリ効率とパフォーマンスが大幅に改善
+- **AI 超解像** - RealESRGAN で画像を 2x 高解像度化
+- **日本語 OCR** - YomiToku による高精度文字認識
+- **Markdown 変換** - PDF から構造化された Markdown を生成 (図・表の自動検出付き)
 - **傾き補正** - 大津二値化 + Hough 変換で自動補正
-- **Web UI** - ブラウザから直感的に操作できます
+- **180度回転検出** - 上下逆のページを自動検出・補正
+- **影除去** - 製本時の影を自動検出・除去
+- **マーカー除去** - 蛍光ペンのハイライトを検出・除去
+- **ブレ補正** - ぼやけた画像のシャープ化 (Unsharp Mask / NAFNet / DeblurGAN-v2)
+- **カラー補正** - HSV 裏写り抑制、紙色の白化
+- **Web UI** - ブラウザから直感的に操作可能
 
 ---
 
-## Web UI
+## クイックスタート
 
-![Web UI](doc_img/webUI.png)
+```bash
+# ソースからビルド
+git clone https://github.com/clearclown/Rust_DN_SuperBook_PDF_Converter.git
+cd Rust_DN_SuperBook_PDF_Converter/superbook-pdf
+cargo build --release --features web
 
-ブラウザベースのインターフェースで、コマンドラインに慣れていない方でも簡単に使えます。ファイルをドラッグ&ドロップするだけで変換が始まります。
+# 基本変換
+superbook-pdf convert input.pdf -o output/
+
+# 高品質変換 (AI超解像 + カラー補正 + オフセット調整)
+superbook-pdf convert input.pdf -o output/ --advanced --ocr
+
+# Markdown 変換
+superbook-pdf markdown input.pdf -o markdown_output/
+
+# Web UI 起動
+superbook-pdf serve --port 8080
+```
+
+---
+
+## コマンド体系
+
+superbook-pdf は 5 つのサブコマンドを提供します:
+
+| コマンド | 説明 |
+|---------|------|
+| [`convert`](#convert---pdf-高品質化) | PDF を AI 強化して高品質 PDF に変換 |
+| [`markdown`](#markdown---pdf-から-markdown-変換) | PDF から構造化された Markdown を生成 |
+| [`reprocess`](#reprocess---失敗ページの再処理) | 変換に失敗したページを再処理 |
+| `info` | システム環境情報を表示 (GPU、依存ツール等) |
+| `cache-info` | 出力 PDF のキャッシュ情報を表示 |
+
+### `convert` - PDF 高品質化
+
+スキャンした PDF を AI 強化して高品質 PDF に変換します。
+
+```bash
+# 基本 (傾き補正 + マージントリム + AI超解像)
+superbook-pdf convert input.pdf -o output/
+
+# 最高品質 (全機能有効)
+superbook-pdf convert input.pdf -o output/ --advanced --ocr
+
+# 影除去 + マーカー除去 + ブレ補正
+superbook-pdf convert input.pdf -o output/ --shadow-removal auto --remove-markers --deblur
+
+# テスト (最初の5ページ、実行計画のみ)
+superbook-pdf convert input.pdf -o output/ --max-pages 5 --dry-run
+```
+
+**主なオプション:**
+
+| オプション | デフォルト | 説明 |
+|-----------|-----------|------|
+| `-o, --output <DIR>` | `./output` | 出力先ディレクトリ |
+| `--advanced` | off | 高品質処理を有効化 (内部解像度正規化 + カラー補正 + オフセット調整) |
+| `--ocr` | off | 日本語OCR を有効化 |
+| `--dpi <N>` | 300 | 出力 DPI |
+| `--jpeg-quality <N>` | 90 | PDF 内 JPEG 圧縮品質 (1-100) |
+| `-m, --margin-trim <N>` | 0.7 | マージントリム率 (%) |
+| `--shadow-removal <MODE>` | auto | 影除去モード (none/auto/left/right/both) |
+| `--remove-markers` | off | 蛍光マーカー除去を有効化 |
+| `--deblur` | off | ブレ補正を有効化 |
+| `--no-upscale` | - | AI超解像をスキップ |
+| `--no-deskew` | - | 傾き補正をスキップ |
+| `--no-gpu` | - | GPU処理を無効化 |
+| `--dry-run` | - | 実行計画を表示 (実処理なし) |
+| `--max-pages <N>` | - | 処理ページ数を制限 |
+| `-v, -vv, -vvv` | - | ログ詳細度 |
+
+全オプションは `superbook-pdf convert --help` で確認できます。
+
+### `markdown` - PDF から Markdown 変換
+
+PDF を OCR し、構造化された Markdown に変換します。図の自動検出・抽出、表の検出、読み順序の自動判定に対応しています。
+
+```bash
+# 基本変換
+superbook-pdf markdown input.pdf -o output/
+
+# 縦書き指定 + AI超解像
+superbook-pdf markdown input.pdf -o output/ --text-direction vertical --upscale
+
+# 品質検証付き
+superbook-pdf markdown input.pdf -o output/ --validate --api-provider claude
+
+# 中断した処理を再開
+superbook-pdf markdown input.pdf -o output/ --resume
+```
+
+**主なオプション:**
+
+| オプション | デフォルト | 説明 |
+|-----------|-----------|------|
+| `-o, --output <DIR>` | `./markdown_output` | 出力先ディレクトリ |
+| `--text-direction` | auto | テキスト方向 (auto/horizontal/vertical) |
+| `--upscale` | off | OCR前にAI超解像を適用 |
+| `--dpi <N>` | 300 | 出力DPI |
+| `--figure-sensitivity <N>` | - | 図検出の感度 (0.0-1.0) |
+| `--no-extract-images` | - | 画像抽出を無効化 |
+| `--no-detect-tables` | - | 表検出を無効化 |
+| `--include-page-numbers` | off | ページ番号を出力に含める |
+| `--validate` | off | 出力Markdownの品質検証 |
+| `--resume` | - | 中断した処理を再開 |
+
+全オプションは `superbook-pdf markdown --help` で確認できます。
+
+### `reprocess` - 失敗ページの再処理
+
+変換中にエラーが発生したページだけを再処理します。
+
+```bash
+# 状態ファイルから自動検出して再処理
+superbook-pdf reprocess output/.superbook-state.json
+
+# 特定ページのみ再処理
+superbook-pdf reprocess output/.superbook-state.json -p 5,12,30
+
+# 状態確認のみ
+superbook-pdf reprocess output/.superbook-state.json --status
+```
+
+---
+
+## 処理パイプライン
+
+`convert` コマンドの処理フロー:
+
+```
+入力PDF
+  │
+  ├─ Step 1: PDF画像抽出 (pdftoppm, 指定DPI)
+  ├─ Step 2: マージントリム (デフォルト 0.7%)
+  ├─ Step 3: 影除去 (--shadow-removal)
+  ├─ Step 4: AI超解像 (RealESRGAN 2x)
+  ├─ Step 5: ブレ補正 (--deblur)
+  ├─ Step 6: 180度回転検出・補正
+  ├─ Step 7: 傾き補正 (大津二値化 + Hough変換)
+  ├─ Step 8: カラー補正 (HSV裏写り抑制)
+  ├─ Step 9: マーカー除去 (--remove-markers)
+  ├─ Step 10: グループクロップ (均一マージン)
+  ├─ Step 11: PDF生成 (JPEG DCT圧縮)
+  └─ Step 12: OCR (YomiToku, --ocr)
+  │
+  出力PDF
+```
+
+空白ページは自動検出 (閾値 2%) され、処理をスキップします。
 
 ---
 
@@ -55,19 +207,16 @@ RealESRGAN による AI 超解像で、文字のエッジが鮮明になり、�
 | 項目 | 要件 |
 |------|------|
 | OS | Linux / macOS / Windows |
-| Rust | 1.78 以上 (ソースビルド時) |
+| Rust | 1.82 以上 (ソースビルド時) |
 | Poppler | `pdftoppm` コマンド |
 
-AI機能を使う場合は、Python 3.10以上と NVIDIA GPU (CUDA 11.8+) が必要です。
-
-> **Note:** 開発とテストは主に Linux で行っていますが、Rust で書かれているため macOS や Windows でも動作します。
+AI機能を使う場合は、Python 3.10 以上と NVIDIA GPU (CUDA 11.8+) が必要です。
 
 ### 1. システム依存パッケージ
 
 ```bash
 # Ubuntu/Debian
-sudo apt update
-sudo apt install -y poppler-utils python3 python3-venv
+sudo apt update && sudo apt install -y poppler-utils python3 python3-venv
 
 # Fedora
 sudo dnf install -y poppler-utils python3
@@ -81,30 +230,19 @@ choco install poppler python
 
 ### 2. superbook-pdf のインストール
 
-一番簡単な方法は crates.io からインストールすることです:
-
 ```bash
-cargo install superbook-pdf --features web
-```
-
-これで `superbook-pdf` コマンドが使えるようになります。
-
-ソースからビルドしたい場合:
-
-```bash
-git clone https://github.com/clearclown/DN_SuperBook_PDF_Converter_Linux.git
-cd DN_SuperBook_PDF_Converter_Linux/superbook-pdf
+# ソースからビルド
+git clone https://github.com/clearclown/Rust_DN_SuperBook_PDF_Converter.git
+cd Rust_DN_SuperBook_PDF_Converter/superbook-pdf
 cargo build --release --features web
 ```
 
-### 3. AI機能のセットアップ (ネイティブ実行時)
+### 3. AI機能のセットアップ (任意)
 
-> **Note:** Docker/Podman を使う場合はこの手順は不要です。コンテナにはAI機能がプリインストールされています。
-
-AI超解像 (RealESRGAN) と OCR (YomiToku) を使いたい場合は、Python環境をセットアップします:
+> Docker/Podman を使う場合はこの手順は不要です。
 
 ```bash
-cd ai_bridge
+cd superbook-pdf/ai_bridge
 
 # Python 仮想環境を作成
 python3 -m venv .venv
@@ -117,174 +255,50 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt
 ```
 
-**重要:** 実行時に `SUPERBOOK_VENV` 環境変数を設定してください:
+実行時に環境変数を設定:
 
 ```bash
-# 一時的に設定
 export SUPERBOOK_VENV=/path/to/ai_bridge/.venv
-
-# または .bashrc に追加
-echo 'export SUPERBOOK_VENV=/path/to/ai_bridge/.venv' >> ~/.bashrc
 ```
-
-この環境変数が設定されていないと、AI機能 (超解像・OCR) は動作しません。
 
 ### 4. Docker/Podman で実行 (推奨)
 
-環境構築が面倒な場合は、コンテナを使うのが一番簡単です。GPU・AI機能がすべてセットアップ済みです。
-
-**ワンライナーでPDF変換:**
-
 ```bash
-# まずイメージをビルド
-docker build -t superbook-pdf superbook-pdf/
-
-# Docker (GPU使用)
-docker run --rm --gpus all \
-  -v $(pwd)/input:/data/input:ro \
-  -v $(pwd)/output:/data/output:rw \
-  superbook-pdf:latest \
-  convert /data/input/book.pdf -o /data/output/ --advanced --ocr
-
-# Podman (GPU使用)
-podman build -t superbook-pdf superbook-pdf/
-podman run --rm --device nvidia.com/gpu=all \
-  -v $(pwd)/input:/data/input:ro \
-  -v $(pwd)/output:/data/output:rw \
-  superbook-pdf:latest \
-  convert /data/input/book.pdf -o /data/output/ --advanced --ocr
-```
-
-**Web UI を起動:**
-
-プロジェクトルートから1コマンドで起動できます。
-
-```bash
-# NVIDIA GPU環境 (デフォルト)
+# NVIDIA GPU
 docker compose up -d
 
-# AMD GPU環境 (ROCm)
+# AMD GPU (ROCm)
 docker compose -f docker-compose.yml -f docker-compose.rocm.yml up -d
 
 # CPUのみ
 docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d
-
-# Podman (NVIDIA GPU)
-podman compose up -d
-
-# Podman (AMD GPU)
-podman compose -f docker-compose.yml -f docker-compose.rocm.yml up -d
-
-# Podman (CPUのみ)
-podman compose -f docker-compose.yml -f docker-compose.cpu.yml up -d
-
-# ログ確認
-docker compose logs -f
-
-# 停止
-docker compose down
 ```
 
 ブラウザで http://localhost:8080 を開けば使えます。
 
-**ローカルでイメージをビルド:**
+---
+
+## Web UI
+
+![Web UI](doc_img/webUI.png)
+
+ブラウザベースのインターフェースで、ファイルをドラッグ&ドロップするだけで変換が始まります。WebSocket によるリアルタイム進捗表示に対応しています。
 
 ```bash
-# Docker (NVIDIA)
-docker compose build
-
-# Docker (AMD ROCm)
-docker compose -f docker-compose.yml -f docker-compose.rocm.yml build
-
-# Podman
-podman compose build
-
-# 単体ビルド (CLI用)
-cd superbook-pdf
-docker build -t superbook-pdf .
+superbook-pdf serve --port 8080 --bind 0.0.0.0
 ```
-
-> **Note:** NVIDIA GPU、AMD GPU (ROCm)、CPUのみの3環境に対応しています。
 
 ---
 
-## コマンドの使い方
+## 詳細ドキュメント
 
-### 基本的な使い方
-
-```bash
-# シンプルな変換
-superbook-pdf convert input.pdf -o output/
-
-# 高品質変換 (AI超解像 + カラー補正 + オフセット調整)
-superbook-pdf convert input.pdf -o output/ --advanced
-
-# OCR付き高品質変換
-superbook-pdf convert input.pdf -o output/ --advanced --ocr
-
-# GPUを使わない場合
-superbook-pdf convert input.pdf -o output/ --no-gpu
-```
-
-### Web UI を起動する
-
-```bash
-superbook-pdf serve --port 8080
-```
-
-ブラウザで http://localhost:8080 を開いてください。
-
-### コマンド一覧
-
-```
-superbook-pdf <COMMAND>
-
-Commands:
-  convert     PDFを変換する
-  serve       Web UIを起動する
-  reprocess   失敗したページを再処理する
-  info        システム情報を表示する
-  cache-info  キャッシュ情報を表示する
-```
-
-### convert コマンドのオプション
-
-よく使うオプションをまとめました:
-
-| オプション | 説明 |
-|-----------|------|
-| `-o, --output <DIR>` | 出力先ディレクトリ (デフォルト: ./output) |
-| `--advanced` | 高品質処理を有効化 (おすすめ) |
-| `--ocr` | 日本語OCRを有効化 |
-| `--no-gpu` | GPUを使わない |
-| `--no-upscale` | AI超解像をスキップ |
-| `--no-deskew` | 傾き補正をスキップ |
-| `--dpi <N>` | 出力DPI (デフォルト: 300) |
-| `--max-pages <N>` | 処理するページ数を制限 (テスト用) |
-| `-v, -vv, -vvv` | ログの詳細度を上げる |
-| `--dry-run` | 実際には処理せず、実行計画を表示 |
-
-全オプションは `superbook-pdf convert --help` で確認できます。
-
-### serve コマンドのオプション
-
-| オプション | 説明 |
-|-----------|------|
-| `-p, --port <PORT>` | ポート番号 (デフォルト: 8080) |
-| `-b, --bind <ADDR>` | バインドアドレス (デフォルト: 127.0.0.1) |
-| `--upload-limit <MB>` | アップロード上限 (デフォルト: 500MB) |
-
----
-
-## 処理パイプライン
-
-1. **PDF画像抽出** - pdftoppm で 300 DPI 抽出
-2. **マージントリム** - 0.5% の余白を除去
-3. **AI超解像** - RealESRGAN で 2x アップスケール
-4. **傾き補正** - 大津二値化 + Hough変換
-5. **カラー補正** - 紙色の白化 (--advanced)
-6. **PDF生成** - メタデータ同期
-7. **OCR** - YomiToku (--ocr)
+| ドキュメント | 内容 |
+|-------------|------|
+| [docs/pipeline.md](docs/pipeline.md) | 処理パイプラインの詳細設計 |
+| [docs/commands.md](docs/commands.md) | 全コマンド・全オプションのリファレンス |
+| [docs/configuration.md](docs/configuration.md) | 設定ファイル (TOML) によるカスタマイズ |
+| [docs/docker.md](docs/docker.md) | Docker/Podman 環境の詳細ガイド |
+| [docs/development.md](docs/development.md) | 開発者向けガイド (ビルド、テスト、アーキテクチャ) |
 
 ---
 
@@ -293,9 +307,11 @@ Commands:
 | 問題 | 解決策 |
 |------|--------|
 | `pdftoppm: command not found` | `sudo apt install poppler-utils` |
-| RealESRGAN が動かない | `SUPERBOOK_VENV` 環境変数を設定してください |
-| GPU が使用されない | PyTorchのCUDA版をインストール: `pip install torch --index-url https://download.pytorch.org/whl/cu121` |
-| メモリ不足 | `--max-pages 10` で分割処理するか、`--chunk-size 5` でチャンク処理 |
+| RealESRGAN が動かない | `SUPERBOOK_VENV` 環境変数を設定 |
+| GPU が使用されない | `pip install torch --index-url https://download.pytorch.org/whl/cu121` |
+| メモリ不足 | `--max-pages 10` か `--chunk-size 5` で分割処理 |
+| 傾き補正で画像が崩れる | `--no-deskew` で無効化 |
+| マージンで文字が切れる | `--margin-safety 1.0` で安全バッファを増加 |
 
 ---
 
@@ -320,4 +336,4 @@ AGPL v3.0 - [LICENSE](LICENSE)
 - **[claude-code-aida](https://github.com/clearclown/claude-code-aida)** - Claude Code用AIDAプラグイン
 - **[AIDA](https://github.com/clearclown/aida)** - マルチエージェント開発フレームワーク (現在メンテナンス中)
 
-これらのツールにより、TDD (テスト駆動開発) に基づいた品質の高いコード生成と、効率的な開発サイクルを実現しています。
+TDD (テスト駆動開発) に基づいた品質の高いコード生成と、効率的な開発サイクルを実現しています。
