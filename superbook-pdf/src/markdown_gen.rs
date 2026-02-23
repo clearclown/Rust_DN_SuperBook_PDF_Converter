@@ -486,7 +486,7 @@ impl MarkdownGenerator {
 
         // Pass 2: strip trailing repeated punctuation like "。。", "··"
         let trimmed_end = result
-            .trim_end_matches(|c: char| c == '。' || c == '·' || c == '・' || c == '.' || c == ',');
+            .trim_end_matches(['。', '·', '・', '.', ',']);
         // Only strip if we removed 2+ punctuation chars (to avoid stripping single valid 。)
         if result.len() - trimmed_end.len() >= 2 * '。'.len_utf8() {
             result = trimmed_end.trim_end();
