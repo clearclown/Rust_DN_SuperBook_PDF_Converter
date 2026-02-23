@@ -568,6 +568,11 @@ impl ColorAnalyzer {
         }
     }
 
+    /// Contrast boost factor applied after color correction.
+    /// Enhances ink darkness without affecting paper whiteness.
+    /// Value of 1.08 = 8% boost, centered on midpoint (128).
+    const CONTRAST_BOOST: f64 = 1.08;
+
     /// Apply global color adjustment to an image
     pub fn apply_adjustment(image: &mut RgbImage, params: &GlobalColorParam) {
         let (w, h) = image.dimensions();
@@ -583,6 +588,15 @@ impl ColorAnalyzer {
                 let mut r = Self::clamp8(src_r as f64 * params.scale_r + params.offset_r);
                 let mut g = Self::clamp8(src_g as f64 * params.scale_g + params.offset_g);
                 let mut b = Self::clamp8(src_b as f64 * params.scale_b + params.offset_b);
+
+                // Mild contrast boost centered on midpoint (128)
+                // Only applied to non-paper pixels to preserve white balance
+                let lum_pre = Self::luminance(r, g, b) as i32;
+                if lum_pre < clip_start {
+                    r = Self::clamp8((r as f64 - 128.0) * Self::CONTRAST_BOOST + 128.0);
+                    g = Self::clamp8((g as f64 - 128.0) * Self::CONTRAST_BOOST + 128.0);
+                    b = Self::clamp8((b as f64 - 128.0) * Self::CONTRAST_BOOST + 128.0);
+                }
 
                 // Paper-like pixel whitening (smooth-step)
                 let lum = Self::luminance(r, g, b) as i32;

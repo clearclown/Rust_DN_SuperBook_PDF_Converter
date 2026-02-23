@@ -392,6 +392,25 @@ fn create_cli_overrides(args: &ConvertArgs) -> CliOverrides {
         overrides.save_debug = Some(true);
     }
 
+    // Shadow removal: override if not default (auto)
+    let shadow_mode = format!("{:?}", args.shadow_removal).to_lowercase();
+    if shadow_mode != "auto" {
+        overrides.shadow_removal = Some(shadow_mode);
+    }
+
+    // Marker removal: override if explicitly enabled
+    if args.remove_markers {
+        overrides.remove_markers = Some(true);
+        overrides.marker_colors = Some(args.marker_colors.clone());
+    }
+
+    // Deblur: override if explicitly enabled
+    if args.deblur {
+        overrides.deblur = Some(true);
+        overrides.deblur_algorithm =
+            Some(format!("{:?}", args.deblur_algorithm).to_lowercase());
+    }
+
     overrides
 }
 
@@ -442,16 +461,34 @@ fn print_execution_plan(
     } else {
         println!("  4. AI Upscaling: DISABLED");
     }
+    if config.shadow_removal != "none" {
+        println!(
+            "  4a. Shadow Removal (mode: {}): ENABLED",
+            config.shadow_removal
+        );
+    }
     if config.ocr {
         println!("  5. OCR (YomiToku): ENABLED");
     } else {
         println!("  5. OCR: DISABLED");
+    }
+    if config.deblur {
+        println!(
+            "  5a. Deblur ({}): ENABLED",
+            config.deblur_algorithm
+        );
     }
     if config.internal_resolution {
         println!("  6. Internal Resolution Normalization (4960x7016): ENABLED");
     }
     if config.color_correction {
         println!("  7. Global Color Correction: ENABLED");
+    }
+    if config.remove_markers {
+        println!(
+            "  7a. Marker Removal (colors: {}): ENABLED",
+            config.marker_colors.join(", ")
+        );
     }
     if config.offset_alignment {
         println!("  8. Page Number Offset Alignment: ENABLED");
@@ -649,9 +686,7 @@ fn check_python() {
     println!();
     println!("Bridge Scripts:");
 
-    let venv_path = std::env::var("SUPERBOOK_VENV")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("./venv"));
+    let venv_path = superbook_pdf::resolve_venv_path();
 
     let bridge_scripts_dir = std::env::var("SUPERBOOK_BRIDGE_SCRIPTS_DIR")
         .map(PathBuf::from)

@@ -250,6 +250,38 @@ pub struct PipelineConfig {
     /// Chunk size for batch processing (0 = auto based on memory)
     #[serde(default)]
     pub chunk_size: usize,
+    /// Shadow removal mode: "none", "auto", "left", "right", "both"
+    #[serde(default = "default_shadow_removal")]
+    pub shadow_removal: String,
+    /// Enable marker/highlighter removal
+    #[serde(default)]
+    pub remove_markers: bool,
+    /// Marker colors to remove
+    #[serde(default = "default_marker_colors")]
+    pub marker_colors: Vec<String>,
+    /// Enable deblur processing
+    #[serde(default)]
+    pub deblur: bool,
+    /// Deblur algorithm: "unsharp_mask", "nafnet", "deblurgan_v2"
+    #[serde(default = "default_deblur_algorithm")]
+    pub deblur_algorithm: String,
+}
+
+fn default_shadow_removal() -> String {
+    "none".to_string()
+}
+
+fn default_marker_colors() -> Vec<String> {
+    vec![
+        "yellow".to_string(),
+        "pink".to_string(),
+        "green".to_string(),
+        "blue".to_string(),
+    ]
+}
+
+fn default_deblur_algorithm() -> String {
+    "unsharp_mask".to_string()
 }
 
 impl Default for PipelineConfig {
@@ -257,11 +289,11 @@ impl Default for PipelineConfig {
         Self {
             dpi: 300,
             deskew: true,
-            margin_trim: 0.5,
+            margin_trim: 0.7,
             upscale: true,
             gpu: true,
             internal_resolution: false,
-            color_correction: false,
+            color_correction: true,
             offset_alignment: false,
             output_height: 3508,
             ocr: false,
@@ -271,6 +303,11 @@ impl Default for PipelineConfig {
             threads: None,
             max_memory_mb: 0, // 0 = unlimited
             chunk_size: 0,    // 0 = auto
+            shadow_removal: default_shadow_removal(),
+            remove_markers: false,
+            marker_colors: default_marker_colors(),
+            deblur: false,
+            deblur_algorithm: default_deblur_algorithm(),
         }
     }
 }
@@ -294,8 +331,13 @@ impl PipelineConfig {
             save_debug: args.save_debug,
             jpeg_quality: args.jpeg_quality,
             threads: args.threads,
-            max_memory_mb: 0, // Auto-detect based on available memory
-            chunk_size: 0,    // Auto-calculate based on memory limit
+            max_memory_mb: 0,
+            chunk_size: 0,
+            shadow_removal: format!("{:?}", args.shadow_removal).to_lowercase(),
+            remove_markers: args.remove_markers,
+            marker_colors: args.marker_colors.clone(),
+            deblur: args.deblur,
+            deblur_algorithm: format!("{:?}", args.deblur_algorithm).to_lowercase(),
         }
     }
 
@@ -515,6 +557,7 @@ impl PdfPipeline {
         // ================================================================
         // C#版互換処理順序:
         // 1. PDF抽出 (上で完了)
+        // 1.5 空白ページ検出
         // 2. マージントリム (0.5%)
         // 3. AI超解像 (RealESRGAN 2x)
         // 4. 内部解像度正規化 (4960x7016)
@@ -522,10 +565,20 @@ impl PdfPipeline {
         // 6. 色補正
         // ================================================================
 
+        // Step 1.5: Detect blank pages (used to skip processing steps)
+        let blank_pages = Self::detect_blank_pages(&current_images, progress);
+
         // Step 2: Margin Trimming (C# does this first)
         // Note: margin_trim is a percentage, skip if 0
         if self.config.margin_trim > 0.0 {
-            current_images = self.step_margin_trim(&work_dir, &current_images, progress)?;
+            current_images =
+                self.step_margin_trim(&work_dir, &current_images, &blank_pages, progress)?;
+        }
+
+        // Step 2.5: Shadow Removal (after margin trim, before upscale)
+        if self.config.shadow_removal != "none" {
+            current_images =
+                self.step_shadow_removal(&work_dir, &current_images, &blank_pages, progress)?;
         }
 
         // Step 3: AI Upscaling (if enabled)
@@ -533,25 +586,50 @@ impl PdfPipeline {
             current_images = self.step_upscale(&work_dir, &current_images, progress)?;
         }
 
+        // Step 3.5: Deblur (after upscale, before normalization)
+        if self.config.deblur {
+            current_images =
+                self.step_deblur(&work_dir, &current_images, &blank_pages, progress)?;
+        }
+
         // Step 4: Internal Resolution Normalization (if enabled)
         // C#: Fit to 4960x7016 with Lanczos3, padding with paper color
+        // Skip blank pages to avoid checkerboard/transparency artifacts
         if self.config.internal_resolution {
-            current_images = self.step_normalize(&work_dir, &current_images, progress)?;
+            current_images =
+                self.step_normalize(&work_dir, &current_images, &blank_pages, progress)?;
+        }
+
+        // Step 4.5: 180-degree rotation detection & correction (before deskew)
+        if self.config.deskew {
+            current_images =
+                self.step_rotation_detect(&work_dir, &current_images, &blank_pages, progress)?;
         }
 
         // Step 5: Deskew (if enabled) - C# does deskew AFTER normalization
         if self.config.deskew {
-            current_images = self.step_deskew(&work_dir, &current_images, progress)?;
+            current_images =
+                self.step_deskew(&work_dir, &current_images, &blank_pages, progress)?;
         }
 
         // Step 6: Color Correction (if enabled)
+        // Skip blank pages to avoid color artifacts
         if self.config.color_correction {
-            current_images = self.step_color_correction(&work_dir, &current_images, progress)?;
+            current_images =
+                self.step_color_correction(&work_dir, &current_images, &blank_pages, progress)?;
+        }
+
+        // Step 6.5: Marker Removal (after color correction, before group crop)
+        if self.config.remove_markers {
+            current_images =
+                self.step_marker_removal(&work_dir, &current_images, &blank_pages, progress)?;
         }
 
         // Step 8: Tukey Fence Group Crop (if offset_alignment enabled)
+        // Exclude blank pages from bounding box detection
         if self.config.offset_alignment {
-            current_images = self.step_group_crop(&work_dir, &current_images, progress)?;
+            current_images =
+                self.step_group_crop(&work_dir, &current_images, &blank_pages, progress)?;
         }
 
         // Step 9: Page Number Offset Calculation
@@ -611,11 +689,132 @@ impl PdfPipeline {
 
     // ============ Processing Step Implementations ============
 
-    /// Step 3: Deskew correction
+    /// Minimum non-background pixel ratio to consider a page as having content
+    const BLANK_PAGE_THRESHOLD: f64 = 0.02; // 2% (was 1%, increased to catch near-blank pages)
+
+    /// Minimum feature count for reliable deskew detection
+    const MIN_DESKEW_FEATURES: usize = 10;
+
+    /// Minimum confidence for deskew correction
+    const MIN_DESKEW_CONFIDENCE: f64 = 0.1;
+
+    /// Detect blank pages (< 1% non-background pixels)
+    ///
+    /// Returns a boolean vec where `true` means the page is blank.
+    fn detect_blank_pages<P: ProgressCallback>(images: &[PathBuf], progress: &P) -> Vec<bool> {
+        progress.on_step_start("Detecting blank pages...");
+        let results: Vec<bool> = images
+            .par_iter()
+            .map(|img_path| {
+                if let Ok(img) = image::open(img_path) {
+                    let gray = img.to_luma8();
+                    let (width, height) = gray.dimensions();
+                    let total_pixels = (width as u64) * (height as u64);
+                    if total_pixels == 0 {
+                        return true;
+                    }
+
+                    // Count non-background pixels (value < 240 = not near-white)
+                    let non_bg_count: u64 = gray.pixels().filter(|p| p.0[0] < 240).count() as u64;
+
+                    let ratio = non_bg_count as f64 / total_pixels as f64;
+                    ratio < Self::BLANK_PAGE_THRESHOLD
+                } else {
+                    false // If we can't open it, assume not blank
+                }
+            })
+            .collect();
+
+        let blank_count = results.iter().filter(|&&b| b).count();
+        if blank_count > 0 {
+            progress.on_debug(&format!(
+                "Detected {} blank page(s) (will skip deskew/margin trim)",
+                blank_count
+            ));
+        }
+        progress.on_step_complete(
+            "Blank detection",
+            &format!("{} blank / {} total", blank_count, results.len()),
+        );
+        results
+    }
+
+    /// Step 4.5: 180-degree rotation detection and correction
+    ///
+    /// Detects pages that are upside down by comparing ink density in
+    /// the top vs bottom of the page, and rotates them 180 degrees.
+    fn step_rotation_detect<P: ProgressCallback>(
+        &self,
+        work_dir: &Path,
+        images: &[PathBuf],
+        blank_pages: &[bool],
+        progress: &P,
+    ) -> Result<Vec<PathBuf>, PipelineError> {
+        progress.on_step_start("Detecting page rotation...");
+        let rotated_dir = work_dir.join("rotation_corrected");
+        std::fs::create_dir_all(&rotated_dir)?;
+
+        let output_paths: Vec<PathBuf> = images
+            .iter()
+            .enumerate()
+            .map(|(idx, img)| {
+                let name = img
+                    .file_name()
+                    .map(|n| n.to_os_string())
+                    .unwrap_or_else(|| std::ffi::OsString::from(format!("page_{:04}.png", idx)));
+                rotated_dir.join(name)
+            })
+            .collect();
+
+        let corrected_count = AtomicUsize::new(0);
+
+        let results: Vec<PathBuf> = images
+            .par_iter()
+            .zip(output_paths.par_iter())
+            .enumerate()
+            .map(|(idx, (img_path, output_path))| {
+                // Skip blank pages
+                if blank_pages.get(idx).copied().unwrap_or(false) {
+                    std::fs::copy(img_path, output_path).ok();
+                    return output_path.clone();
+                }
+
+                // Check if upside down
+                match crate::ImageProcDeskewer::detect_upside_down(img_path) {
+                    Ok(true) => {
+                        // Rotate 180 degrees
+                        match crate::ImageProcDeskewer::correct_upside_down(img_path, output_path) {
+                            Ok(()) => {
+                                corrected_count.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(_) => {
+                                std::fs::copy(img_path, output_path).ok();
+                            }
+                        }
+                    }
+                    _ => {
+                        // Not upside down or detection failed — keep as is
+                        std::fs::copy(img_path, output_path).ok();
+                    }
+                }
+                output_path.clone()
+            })
+            .collect();
+
+        let corrected = corrected_count.load(Ordering::Relaxed);
+        progress.on_step_complete(
+            "Rotation detection",
+            &format!("{} pages corrected (180°)", corrected),
+        );
+        Ok(results)
+    }
+
+    /// Step 3: Deskew correction (with blank page skip + confidence filter)
     fn step_deskew<P: ProgressCallback>(
         &self,
         work_dir: &Path,
         images: &[PathBuf],
+        blank_pages: &[bool],
         progress: &P,
     ) -> Result<Vec<PathBuf>, PipelineError> {
         progress.on_step_start("Applying deskew correction...");
@@ -638,13 +837,44 @@ impl PdfPipeline {
             })
             .collect();
 
+        let skipped = AtomicUsize::new(0);
+        let low_confidence = AtomicUsize::new(0);
+
         let results: Vec<PathBuf> = images
             .par_iter()
             .zip(output_paths.par_iter())
-            .map(|(img_path, output_path)| {
-                match crate::ImageProcDeskewer::correct_skew(img_path, output_path, &deskew_options)
-                {
-                    Ok(_) => {}
+            .enumerate()
+            .map(|(idx, (img_path, output_path))| {
+                // Skip blank pages
+                if blank_pages.get(idx).copied().unwrap_or(false) {
+                    std::fs::copy(img_path, output_path).ok();
+                    skipped.fetch_add(1, Ordering::Relaxed);
+                    return output_path.clone();
+                }
+
+                // Detect skew first, then apply confidence filter
+                match crate::ImageProcDeskewer::detect_skew(img_path, &deskew_options) {
+                    Ok(detection) => {
+                        if detection.feature_count < Self::MIN_DESKEW_FEATURES
+                            || detection.confidence < Self::MIN_DESKEW_CONFIDENCE
+                        {
+                            // Low confidence: skip correction
+                            std::fs::copy(img_path, output_path).ok();
+                            low_confidence.fetch_add(1, Ordering::Relaxed);
+                        } else {
+                            // Apply deskew correction
+                            match crate::ImageProcDeskewer::correct_skew(
+                                img_path,
+                                output_path,
+                                &deskew_options,
+                            ) {
+                                Ok(_) => {}
+                                Err(_) => {
+                                    std::fs::copy(img_path, output_path).ok();
+                                }
+                            }
+                        }
+                    }
                     Err(_) => {
                         std::fs::copy(img_path, output_path).ok();
                     }
@@ -653,18 +883,260 @@ impl PdfPipeline {
             })
             .collect();
 
-        progress.on_step_complete("Deskew", &format!("{} images", results.len()));
+        let skipped_count = skipped.load(Ordering::Relaxed);
+        let low_conf_count = low_confidence.load(Ordering::Relaxed);
+        let corrected = results.len() - skipped_count - low_conf_count;
+        progress.on_step_complete(
+            "Deskew",
+            &format!(
+                "{} corrected, {} skipped (blank), {} skipped (low confidence)",
+                corrected, skipped_count, low_conf_count
+            ),
+        );
+        Ok(results)
+    }
+
+    /// Step 2.5: Shadow removal (after margin trim, before upscale)
+    fn step_shadow_removal<P: ProgressCallback>(
+        &self,
+        work_dir: &Path,
+        images: &[PathBuf],
+        blank_pages: &[bool],
+        progress: &P,
+    ) -> Result<Vec<PathBuf>, PipelineError> {
+        progress.on_step_start(&format!(
+            "Removing binding shadows (mode: {})...",
+            self.config.shadow_removal
+        ));
+        let shadow_dir = work_dir.join("shadow_removed");
+        std::fs::create_dir_all(&shadow_dir)?;
+
+        let shadow_options = match self.config.shadow_removal.as_str() {
+            "left" => crate::margin::shadow::ShadowRemovalOptions::left_only(),
+            "right" => crate::margin::shadow::ShadowRemovalOptions::right_only(),
+            "both" => crate::margin::shadow::ShadowRemovalOptions::both_horizontal(),
+            _ => crate::margin::shadow::ShadowRemovalOptions::default(), // "auto"
+        };
+
+        let output_paths: Vec<PathBuf> = images
+            .iter()
+            .enumerate()
+            .map(|(idx, img)| {
+                let name = img
+                    .file_name()
+                    .map(|n| n.to_os_string())
+                    .unwrap_or_else(|| std::ffi::OsString::from(format!("page_{:04}.png", idx)));
+                shadow_dir.join(name)
+            })
+            .collect();
+
+        let removed_count = AtomicUsize::new(0);
+
+        let results: Vec<PathBuf> = images
+            .par_iter()
+            .zip(output_paths.par_iter())
+            .enumerate()
+            .map(|(idx, (img_path, output_path))| {
+                if blank_pages.get(idx).copied().unwrap_or(false) {
+                    std::fs::copy(img_path, output_path).ok();
+                    return output_path.clone();
+                }
+
+                match crate::margin::shadow::ShadowDetector::remove_shadows(
+                    img_path,
+                    output_path,
+                    &shadow_options,
+                ) {
+                    Ok(result) => {
+                        if result.has_shadows() {
+                            removed_count.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                    Err(_) => {
+                        std::fs::copy(img_path, output_path).ok();
+                    }
+                }
+                output_path.clone()
+            })
+            .collect();
+
+        let count = removed_count.load(Ordering::Relaxed);
+        progress.on_step_complete(
+            "Shadow removal",
+            &format!("{} shadows found in {} images", count, results.len()),
+        );
+        Ok(results)
+    }
+
+    /// Step 3.5: Deblur (after upscale, before normalization)
+    fn step_deblur<P: ProgressCallback>(
+        &self,
+        work_dir: &Path,
+        images: &[PathBuf],
+        blank_pages: &[bool],
+        progress: &P,
+    ) -> Result<Vec<PathBuf>, PipelineError> {
+        progress.on_step_start(&format!(
+            "Applying deblur ({})...",
+            self.config.deblur_algorithm
+        ));
+        let deblur_dir = work_dir.join("deblurred");
+        std::fs::create_dir_all(&deblur_dir)?;
+
+        let algorithm = match self.config.deblur_algorithm.as_str() {
+            "nafnet" => crate::cleanup::deblur::DeblurAlgorithm::NafNet,
+            "deblurgan_v2" | "deblurganv2" => crate::cleanup::deblur::DeblurAlgorithm::DeblurGanV2,
+            _ => crate::cleanup::deblur::DeblurAlgorithm::UnsharpMask,
+        };
+
+        let deblur_options = crate::cleanup::deblur::DeblurOptions::builder()
+            .algorithm(algorithm)
+            .build();
+
+        let output_paths: Vec<PathBuf> = images
+            .iter()
+            .enumerate()
+            .map(|(idx, img)| {
+                let name = img
+                    .file_name()
+                    .map(|n| n.to_os_string())
+                    .unwrap_or_else(|| std::ffi::OsString::from(format!("page_{:04}.png", idx)));
+                deblur_dir.join(name)
+            })
+            .collect();
+
+        let processed_count = AtomicUsize::new(0);
+
+        let results: Vec<PathBuf> = images
+            .par_iter()
+            .zip(output_paths.par_iter())
+            .enumerate()
+            .map(|(idx, (img_path, output_path))| {
+                if blank_pages.get(idx).copied().unwrap_or(false) {
+                    std::fs::copy(img_path, output_path).ok();
+                    return output_path.clone();
+                }
+
+                match crate::cleanup::deblur::Deblurrer::process(
+                    img_path,
+                    output_path,
+                    &deblur_options,
+                ) {
+                    Ok(result) => {
+                        if result.processed {
+                            processed_count.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                    Err(_) => {
+                        std::fs::copy(img_path, output_path).ok();
+                    }
+                }
+                output_path.clone()
+            })
+            .collect();
+
+        let count = processed_count.load(Ordering::Relaxed);
+        progress.on_step_complete(
+            "Deblur",
+            &format!("{} deblurred / {} total", count, results.len()),
+        );
+        Ok(results)
+    }
+
+    /// Step 6.5: Marker removal (after color correction, before group crop)
+    fn step_marker_removal<P: ProgressCallback>(
+        &self,
+        work_dir: &Path,
+        images: &[PathBuf],
+        blank_pages: &[bool],
+        progress: &P,
+    ) -> Result<Vec<PathBuf>, PipelineError> {
+        progress.on_step_start("Removing highlighter markers...");
+        let marker_dir = work_dir.join("marker_removed");
+        std::fs::create_dir_all(&marker_dir)?;
+
+        // Parse marker colors from config strings
+        let colors: Vec<crate::cleanup::marker_removal::HighlighterColor> = self
+            .config
+            .marker_colors
+            .iter()
+            .filter_map(|c| match c.to_lowercase().as_str() {
+                "yellow" => Some(crate::cleanup::marker_removal::HighlighterColor::Yellow),
+                "pink" => Some(crate::cleanup::marker_removal::HighlighterColor::Pink),
+                "green" => Some(crate::cleanup::marker_removal::HighlighterColor::Green),
+                "blue" => Some(crate::cleanup::marker_removal::HighlighterColor::Blue),
+                "orange" => Some(crate::cleanup::marker_removal::HighlighterColor::Orange),
+                _ => None,
+            })
+            .collect();
+
+        let marker_options = crate::cleanup::marker_removal::MarkerRemovalOptions::builder()
+            .colors(if colors.is_empty() {
+                crate::cleanup::marker_removal::HighlighterColor::all()
+            } else {
+                colors
+            })
+            .build();
+
+        let output_paths: Vec<PathBuf> = images
+            .iter()
+            .enumerate()
+            .map(|(idx, img)| {
+                let name = img
+                    .file_name()
+                    .map(|n| n.to_os_string())
+                    .unwrap_or_else(|| std::ffi::OsString::from(format!("page_{:04}.png", idx)));
+                marker_dir.join(name)
+            })
+            .collect();
+
+        let removed_count = AtomicUsize::new(0);
+
+        let results: Vec<PathBuf> = images
+            .par_iter()
+            .zip(output_paths.par_iter())
+            .enumerate()
+            .map(|(idx, (img_path, output_path))| {
+                if blank_pages.get(idx).copied().unwrap_or(false) {
+                    std::fs::copy(img_path, output_path).ok();
+                    return output_path.clone();
+                }
+
+                match crate::cleanup::marker_removal::MarkerRemover::remove(
+                    img_path,
+                    output_path,
+                    &marker_options,
+                ) {
+                    Ok(result) => {
+                        if result.has_markers() {
+                            removed_count.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                    Err(_) => {
+                        std::fs::copy(img_path, output_path).ok();
+                    }
+                }
+                output_path.clone()
+            })
+            .collect();
+
+        let count = removed_count.load(Ordering::Relaxed);
+        progress.on_step_complete(
+            "Marker removal",
+            &format!("{} pages with markers / {} total", count, results.len()),
+        );
         Ok(results)
     }
 
     /// Step 2: Margin trimming (C#互換: 単純な固定%カット)
     ///
     /// C#版と同様に、各辺から指定%を単純にカットする。
-    /// 複雑なマージン検出は行わない。
+    /// 空白ページはスキップする。
     fn step_margin_trim<P: ProgressCallback>(
         &self,
         work_dir: &Path,
         images: &[PathBuf],
+        blank_pages: &[bool],
         progress: &P,
     ) -> Result<Vec<PathBuf>, PipelineError> {
         progress.on_step_start(&format!(
@@ -691,8 +1163,16 @@ impl PdfPipeline {
         let results: Vec<PathBuf> = images
             .par_iter()
             .zip(output_paths.par_iter())
-            .map(|(img_path, output_path)| {
+            .enumerate()
+            .map(|(idx, (img_path, output_path))| {
+                // Skip blank pages
+                if blank_pages.get(idx).copied().unwrap_or(false) {
+                    std::fs::copy(img_path, output_path).ok();
+                    return output_path.clone();
+                }
+
                 // C#互換: 単純な固定%カット
+                // Force RGB conversion to prevent transparency/checkerboard artifacts
                 if let Ok(img) = image::open(img_path) {
                     let (w, h) = (img.width(), img.height());
                     let trim_x = (w as f64 * trim_percent) as u32;
@@ -705,9 +1185,12 @@ impl PdfPipeline {
 
                     if new_w > 0 && new_h > 0 {
                         let cropped = img.crop_imm(new_x, new_y, new_w, new_h);
-                        cropped.save(output_path).ok();
+                        // Convert to RGB (no alpha) to avoid checkerboard artifacts
+                        let rgb = cropped.to_rgb8();
+                        rgb.save(output_path).ok();
                     } else {
-                        img.save(output_path).ok();
+                        let rgb = img.to_rgb8();
+                        rgb.save(output_path).ok();
                     }
                 } else {
                     std::fs::copy(img_path, output_path).ok();
@@ -732,9 +1215,7 @@ impl PdfPipeline {
         std::fs::create_dir_all(&upscaled_dir)?;
 
         // Try to initialize RealESRGAN
-        let venv_path = std::env::var("SUPERBOOK_VENV")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("./venv"));
+        let venv_path = crate::resolve_venv_path();
 
         let bridge_config = crate::AiBridgeConfig::builder()
             .venv_path(venv_path)
@@ -772,11 +1253,12 @@ impl PdfPipeline {
         }
     }
 
-    /// Step 6: Internal resolution normalization
+    /// Step 6: Internal resolution normalization (skip blank pages)
     fn step_normalize<P: ProgressCallback>(
         &self,
         work_dir: &Path,
         images: &[PathBuf],
+        blank_pages: &[bool],
         progress: &P,
     ) -> Result<Vec<PathBuf>, PipelineError> {
         progress.on_step_start("Normalizing to internal resolution (4960x7016)...");
@@ -793,16 +1275,25 @@ impl PdfPipeline {
             .collect();
 
         let completed = Arc::new(AtomicUsize::new(0));
-        let _total = images.len();
 
         let results: Vec<PathBuf> = images
             .par_iter()
             .zip(output_paths.par_iter())
-            .map(|(img_path, output_path)| {
-                match crate::ImageNormalizer::normalize(img_path, output_path, &normalize_options) {
-                    Ok(_) => {}
-                    Err(_) => {
-                        std::fs::copy(img_path, output_path).ok();
+            .enumerate()
+            .map(|(idx, (img_path, output_path))| {
+                // Skip blank pages to avoid transparency/checkerboard artifacts
+                if blank_pages.get(idx).copied().unwrap_or(false) {
+                    std::fs::copy(img_path, output_path).ok();
+                } else {
+                    match crate::ImageNormalizer::normalize(
+                        img_path,
+                        output_path,
+                        &normalize_options,
+                    ) {
+                        Ok(_) => {}
+                        Err(_) => {
+                            std::fs::copy(img_path, output_path).ok();
+                        }
                     }
                 }
                 completed.fetch_add(1, Ordering::Relaxed);
@@ -814,21 +1305,29 @@ impl PdfPipeline {
         Ok(results)
     }
 
-    /// Step 7: Color correction
+    /// Step 7: Color correction (skip blank pages in stats collection)
     fn step_color_correction<P: ProgressCallback>(
         &self,
         work_dir: &Path,
         images: &[PathBuf],
+        blank_pages: &[bool],
         progress: &P,
     ) -> Result<Vec<PathBuf>, PipelineError> {
         progress.on_step_start("Analyzing color statistics...");
         let color_corrected_dir = work_dir.join("color_corrected");
         std::fs::create_dir_all(&color_corrected_dir)?;
 
-        // Collect color statistics
+        // Collect color statistics (exclude blank pages from global stats)
         let stats_results: Vec<_> = images
             .par_iter()
-            .map(|img_path| crate::ColorAnalyzer::calculate_stats(img_path))
+            .enumerate()
+            .map(|(idx, img_path)| {
+                if blank_pages.get(idx).copied().unwrap_or(false) {
+                    Err(std::io::Error::other("blank page").into())
+                } else {
+                    crate::ColorAnalyzer::calculate_stats(img_path)
+                }
+            })
             .collect();
 
         let all_stats: Vec<_> = stats_results.into_iter().filter_map(|r| r.ok()).collect();
@@ -856,8 +1355,12 @@ impl PdfPipeline {
         let results: Vec<PathBuf> = images
             .par_iter()
             .zip(output_paths.par_iter())
-            .map(|(img_path, output_path)| {
-                if let Ok(img) = image::open(img_path) {
+            .enumerate()
+            .map(|(idx, (img_path, output_path))| {
+                // Skip blank pages
+                if blank_pages.get(idx).copied().unwrap_or(false) {
+                    std::fs::copy(img_path, output_path).ok();
+                } else if let Ok(img) = image::open(img_path) {
                     let mut rgb_img = img.to_rgb8();
                     crate::ColorAnalyzer::apply_adjustment(&mut rgb_img, &global_param);
                     rgb_img.save(output_path).ok();
@@ -872,18 +1375,28 @@ impl PdfPipeline {
         Ok(results)
     }
 
-    /// Step 8: Tukey fence group crop
+    /// Step 8: Tukey fence group crop (skip blank pages in detection)
     fn step_group_crop<P: ProgressCallback>(
         &self,
         work_dir: &Path,
         images: &[PathBuf],
+        blank_pages: &[bool],
         progress: &P,
     ) -> Result<Vec<PathBuf>, PipelineError> {
         progress.on_step_start("Detecting text bounding boxes...");
         let cropped_dir = work_dir.join("cropped");
         std::fs::create_dir_all(&cropped_dir)?;
 
-        let bounding_boxes = crate::GroupCropAnalyzer::detect_all_bounding_boxes(images, 240);
+        // Only detect bounding boxes on non-blank pages
+        let non_blank_images: Vec<PathBuf> = images
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| !blank_pages.get(*idx).copied().unwrap_or(false))
+            .map(|(_, p)| p.clone())
+            .collect();
+
+        let bounding_boxes =
+            crate::GroupCropAnalyzer::detect_all_bounding_boxes(&non_blank_images, 240);
 
         if bounding_boxes.is_empty() {
             progress.on_debug("No bounding boxes detected, skipping crop");
@@ -892,7 +1405,7 @@ impl PdfPipeline {
 
         let unified = crate::GroupCropAnalyzer::unify_and_expand_regions(
             &bounding_boxes,
-            5,    // 5% margin expansion
+            10,   // 10% margin expansion (was 8%, increased to prevent edge clipping)
             4960, // internal width limit
             7016, // internal height limit
         );
@@ -906,6 +1419,12 @@ impl PdfPipeline {
             .zip(output_paths.par_iter())
             .enumerate()
             .map(|(i, (img_path, output_path))| {
+                // Skip blank pages
+                if blank_pages.get(i).copied().unwrap_or(false) {
+                    std::fs::copy(img_path, output_path).ok();
+                    return output_path.clone();
+                }
+
                 let region = if i % 2 == 0 {
                     &unified.odd_region
                 } else {
@@ -916,10 +1435,12 @@ impl PdfPipeline {
                     let cropped = img.crop_imm(
                         region.left,
                         region.top,
-                        region.width.min(img.width() - region.left),
-                        region.height.min(img.height() - region.top),
+                        region.width.min(img.width().saturating_sub(region.left)),
+                        region.height.min(img.height().saturating_sub(region.top)),
                     );
-                    cropped.save(output_path).ok();
+                    // Force RGB to prevent transparency artifacts
+                    let rgb = cropped.to_rgb8();
+                    rgb.save(output_path).ok();
                 } else {
                     std::fs::copy(img_path, output_path).ok();
                 }
@@ -1066,9 +1587,7 @@ impl PdfPipeline {
     ) -> Result<Vec<Option<crate::OcrResult>>, PipelineError> {
         progress.on_step_start("Running OCR (YomiToku)...");
 
-        let venv_path = std::env::var("SUPERBOOK_VENV")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("./venv"));
+        let venv_path = crate::resolve_venv_path();
 
         let bridge_config = crate::AiBridgeConfig::builder()
             .venv_path(venv_path)
@@ -1178,11 +1697,11 @@ mod tests {
 
         assert_eq!(config.dpi, 300);
         assert!(config.deskew);
-        assert_eq!(config.margin_trim, 0.5);
+        assert_eq!(config.margin_trim, 0.7);
         assert!(config.upscale);
         assert!(config.gpu);
         assert!(!config.internal_resolution);
-        assert!(!config.color_correction);
+        assert!(config.color_correction);
         assert!(!config.offset_alignment);
         assert_eq!(config.output_height, 3508);
         assert!(!config.ocr);

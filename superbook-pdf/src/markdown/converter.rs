@@ -229,6 +229,7 @@ impl MarkdownConverter {
     }
 
     /// Convert OCR result to PageContent
+    #[allow(clippy::type_complexity)]
     pub fn ocr_result_to_page_content(
         page_number: usize,
         page_size: (u32, u32),

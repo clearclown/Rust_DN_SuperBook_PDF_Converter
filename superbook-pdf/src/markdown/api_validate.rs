@@ -171,7 +171,7 @@ impl ApiValidator {
 
     /// Validate a Markdown file
     pub fn validate_file(&self, path: &Path) -> Result<ValidationResult> {
-        let content = std::fs::read_to_string(path).map_err(|e| MarkdownError::IoError(e))?;
+        let content = std::fs::read_to_string(path).map_err(MarkdownError::IoError)?;
 
         self.validate(&content)
     }

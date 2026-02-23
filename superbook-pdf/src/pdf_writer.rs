@@ -383,20 +383,30 @@ impl PrintPdfWriter {
             "Layer 1",
         );
 
+        // Load font once before the page loop (only if OCR layer is present)
+        let font = if options.ocr_layer.is_some() {
+            Some(Self::load_font(&doc, options.cjk_font_path.as_deref())?)
+        } else {
+            None
+        };
+
         // Add first image to first page
-        Self::add_image_to_layer(&doc, page1, layer1, &first_img, width_mm, height_mm)?;
+        Self::add_image_to_layer(
+            &doc,
+            page1,
+            layer1,
+            &first_img,
+            &images[0],
+            width_mm,
+            height_mm,
+            options.jpeg_quality,
+        )?;
 
         // Add OCR text layer for first page if available
         if let Some(ref ocr_layer) = options.ocr_layer {
             if let Some(page_text) = ocr_layer.pages.iter().find(|p| p.page_index == 0) {
                 let text_layer = doc.get_page(page1).add_layer("OCR Text");
-                Self::add_ocr_text(
-                    &doc,
-                    text_layer,
-                    page_text,
-                    height_mm,
-                    options.cjk_font_path.as_deref(),
-                )?;
+                Self::add_ocr_text(text_layer, page_text, height_mm, font.as_ref().unwrap())?;
             }
         }
 
@@ -426,19 +436,22 @@ impl PrintPdfWriter {
 
             let (page, layer) = doc.add_page(printpdf::Mm(w_mm), printpdf::Mm(h_mm), "Layer 1");
 
-            Self::add_image_to_layer(&doc, page, layer, &img, w_mm, h_mm)?;
+            Self::add_image_to_layer(
+                &doc,
+                page,
+                layer,
+                &img,
+                img_path,
+                w_mm,
+                h_mm,
+                options.jpeg_quality,
+            )?;
 
             // Add OCR text layer if available
             if let Some(ref ocr_layer) = options.ocr_layer {
                 if let Some(page_text) = ocr_layer.pages.iter().find(|p| p.page_index == img_idx) {
                     let text_layer = doc.get_page(page).add_layer("OCR Text");
-                    Self::add_ocr_text(
-                        &doc,
-                        text_layer,
-                        page_text,
-                        h_mm,
-                        options.cjk_font_path.as_deref(),
-                    )?;
+                    Self::add_ocr_text(text_layer, page_text, h_mm, font.as_ref().unwrap())?;
                 }
             }
         }
@@ -453,29 +466,67 @@ impl PrintPdfWriter {
     }
 
     /// Add image to a PDF layer
+    ///
+    /// If the input is a JPEG file, the raw JPEG bytes are passed through directly
+    /// (DCT filter) to avoid re-encoding overhead. For non-JPEG inputs (PNG, etc.),
+    /// the image is JPEG-encoded at the specified quality before embedding.
+    #[allow(clippy::too_many_arguments)]
     fn add_image_to_layer(
         doc: &printpdf::PdfDocumentReference,
         page: printpdf::PdfPageIndex,
         layer: printpdf::PdfLayerIndex,
         img: &image::DynamicImage,
+        img_path: &Path,
         width_mm: f32,
         height_mm: f32,
+        jpeg_quality: u8,
     ) -> Result<()> {
         use printpdf::{Image, ImageTransform, Mm, Px};
 
-        // Convert image to RGB8 format
-        let rgb_img = img.to_rgb8();
-        let (img_width, img_height) = rgb_img.dimensions();
+        let (img_width, img_height) = (img.width(), img.height());
 
-        // Create printpdf Image from raw RGB data
+        // Check if input is JPEG for pass-through
+        let is_jpeg = img_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| {
+                let lower = e.to_ascii_lowercase();
+                lower == "jpg" || lower == "jpeg"
+            })
+            .unwrap_or(false);
+
+        let image_data_bytes = if is_jpeg {
+            // JPEG pass-through: read raw bytes directly, no re-encoding
+            std::fs::read(img_path)?
+        } else {
+            // Non-JPEG (PNG, etc.): encode to JPEG
+            let rgb_img = img.to_rgb8();
+            let mut jpeg_buf = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut jpeg_buf);
+            let mut encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, jpeg_quality);
+            encoder
+                .encode(
+                    rgb_img.as_raw(),
+                    img_width,
+                    img_height,
+                    image::ExtendedColorType::Rgb8,
+                )
+                .map_err(|e| {
+                    PdfWriterError::GenerationError(format!("JPEG encode error: {}", e))
+                })?;
+            jpeg_buf
+        };
+
+        // Create printpdf Image with DCT (JPEG) filter
         let image_data = printpdf::ImageXObject {
             width: Px(img_width as usize),
             height: Px(img_height as usize),
             color_space: printpdf::ColorSpace::Rgb,
             bits_per_component: printpdf::ColorBits::Bit8,
             interpolate: true,
-            image_data: rgb_img.into_raw(),
-            image_filter: None,
+            image_data: image_data_bytes,
+            image_filter: Some(printpdf::ImageFilter::DCT),
             clipping_bbox: None,
             smask: None,
         };
@@ -486,8 +537,6 @@ impl PrintPdfWriter {
         let layer_ref = doc.get_page(page).get_layer(layer);
 
         // Calculate transform to fit image to page
-        // printpdf uses points (72 per inch) for scaling
-        // We need to convert from pixels to points, then scale to fit the page
         let dpi = 300.0_f32;
         let img_width_pt = img_width as f32 * 72.0 / dpi;
         let img_height_pt = img_height as f32 * 72.0 / dpi;
@@ -514,22 +563,15 @@ impl PrintPdfWriter {
         Ok(())
     }
 
-    /// Add OCR text layer to a PDF page
+    /// Load a font for OCR text embedding.
     ///
-    /// The text is rendered as invisible (searchable) text over the image.
-    /// When a CJK font is available, it is used to properly embed Japanese/Chinese/Korean text.
-    /// Falls back to Helvetica (ASCII-only) if no CJK font is found.
-    fn add_ocr_text(
+    /// Tries CJK font first (custom path or system fonts), falls back to Helvetica.
+    /// This should be called once before the page loop, not per-page.
+    fn load_font(
         doc: &printpdf::PdfDocumentReference,
-        layer: printpdf::PdfLayerReference,
-        page_text: &OcrPageText,
-        page_height_mm: f32,
         cjk_font_path: Option<&Path>,
-    ) -> Result<()> {
-        use printpdf::Mm;
-
-        // Try to load CJK font for proper Japanese/CJK text support
-        let font = if let Some(font_path) = find_cjk_font(cjk_font_path) {
+    ) -> Result<printpdf::IndirectFontRef> {
+        if let Some(font_path) = find_cjk_font(cjk_font_path) {
             let font_file = File::open(&font_path).map_err(|e| {
                 PdfWriterError::GenerationError(format!(
                     "Failed to open CJK font {}: {}",
@@ -544,16 +586,28 @@ impl PrintPdfWriter {
                     font_path.display(),
                     e
                 ))
-            })?
+            })
         } else {
-            // Fallback to Helvetica (ASCII-only)
             eprintln!(
                 "Warning: No CJK font found. Japanese/Chinese/Korean OCR text will not be embedded correctly. \
                  Install fonts-noto-cjk (Linux) or specify --cjk-font-path."
             );
             doc.add_builtin_font(printpdf::BuiltinFont::Helvetica)
-                .map_err(|e| PdfWriterError::GenerationError(e.to_string()))?
-        };
+                .map_err(|e| PdfWriterError::GenerationError(e.to_string()))
+        }
+    }
+
+    /// Add OCR text layer to a PDF page
+    ///
+    /// The text is rendered as invisible (searchable) text over the image.
+    /// The font must be loaded once via `load_font()` and shared across all pages.
+    fn add_ocr_text(
+        layer: printpdf::PdfLayerReference,
+        page_text: &OcrPageText,
+        page_height_mm: f32,
+        font: &printpdf::IndirectFontRef,
+    ) -> Result<()> {
+        use printpdf::Mm;
 
         for block in &page_text.blocks {
             if block.text.is_empty() {
@@ -572,7 +626,7 @@ impl PrintPdfWriter {
             // This makes text searchable but not visible
             layer.set_text_rendering_mode(printpdf::TextRenderingMode::Invisible);
 
-            layer.use_text(&block.text, font_size_pt, Mm(x_mm), Mm(y_mm), &font);
+            layer.use_text(&block.text, font_size_pt, Mm(x_mm), Mm(y_mm), font);
         }
 
         Ok(())
@@ -2287,6 +2341,94 @@ mod tests {
             Some(PathBuf::from(
                 "/usr/share/fonts/noto/NotoSansCJK-Regular.ttc"
             ))
+        );
+    }
+
+    // ============================================================
+    // Issue #45/#46: PDF size reduction tests
+    // ============================================================
+
+    #[test]
+    fn test_jpeg_compression_reduces_pdf_size() {
+        // Verify that the DCT-compressed PDF is significantly smaller than raw image data
+        let temp_dir = tempdir().unwrap();
+        let output = temp_dir.path().join("compressed.pdf");
+
+        let images = vec![PathBuf::from("tests/fixtures/book_page_1.png")];
+        let options = PdfWriterOptions::builder().jpeg_quality(85).build();
+
+        PrintPdfWriter::create_from_images(&images, &output, &options).unwrap();
+
+        let pdf_size = std::fs::metadata(&output).unwrap().len();
+        let img = image::open(&images[0]).unwrap();
+        let raw_rgb_size = (img.width() * img.height() * 3) as u64;
+
+        // JPEG-compressed PDF should be much smaller than raw RGB data
+        assert!(
+            pdf_size < raw_rgb_size / 2,
+            "PDF size ({} bytes) should be significantly smaller than raw RGB ({} bytes)",
+            pdf_size,
+            raw_rgb_size
+        );
+    }
+
+    #[test]
+    fn test_multi_page_pdf_size_scales_linearly() {
+        // Multi-page PDF should scale ~linearly with page count (not multiply due to font duplication)
+        let temp_dir = tempdir().unwrap();
+
+        // Single page PDF
+        let output_1 = temp_dir.path().join("one_page.pdf");
+        let images_1 = vec![PathBuf::from("tests/fixtures/book_page_1.png")];
+        PrintPdfWriter::create_from_images(&images_1, &output_1, &PdfWriterOptions::default())
+            .unwrap();
+        let size_1 = std::fs::metadata(&output_1).unwrap().len();
+
+        // 5 page PDF
+        let output_5 = temp_dir.path().join("five_pages.pdf");
+        let images_5: Vec<_> = (1..=5)
+            .map(|i| PathBuf::from(format!("tests/fixtures/book_page_{}.png", i)))
+            .collect();
+        PrintPdfWriter::create_from_images(&images_5, &output_5, &PdfWriterOptions::default())
+            .unwrap();
+        let size_5 = std::fs::metadata(&output_5).unwrap().len();
+
+        // 5 pages should be roughly 5x the single page, with some overhead
+        // but NOT 5x + (N-1)*25MB from duplicated fonts
+        let ratio = size_5 as f64 / size_1 as f64;
+        assert!(
+            ratio < 8.0,
+            "5-page PDF size ratio ({:.1}x) should be reasonable (< 8x single page). \
+             1-page: {} bytes, 5-page: {} bytes",
+            ratio,
+            size_1,
+            size_5
+        );
+    }
+
+    #[test]
+    fn test_jpeg_quality_affects_size() {
+        let temp_dir = tempdir().unwrap();
+        let images = vec![PathBuf::from("tests/fixtures/book_page_1.png")];
+
+        // Low quality
+        let output_low = temp_dir.path().join("low_q.pdf");
+        let options_low = PdfWriterOptions::builder().jpeg_quality(30).build();
+        PrintPdfWriter::create_from_images(&images, &output_low, &options_low).unwrap();
+        let size_low = std::fs::metadata(&output_low).unwrap().len();
+
+        // High quality
+        let output_high = temp_dir.path().join("high_q.pdf");
+        let options_high = PdfWriterOptions::builder().jpeg_quality(95).build();
+        PrintPdfWriter::create_from_images(&images, &output_high, &options_high).unwrap();
+        let size_high = std::fs::metadata(&output_high).unwrap().len();
+
+        // Higher quality should produce larger file
+        assert!(
+            size_high > size_low,
+            "High quality PDF ({} bytes) should be larger than low quality ({} bytes)",
+            size_high,
+            size_low
         );
     }
 }

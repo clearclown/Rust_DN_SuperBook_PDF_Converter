@@ -474,7 +474,7 @@ impl ContentAwareBoundaryDetector {
 
         // Aspect ratio constraint
         let aspect = component.aspect_ratio();
-        if aspect < MIN_COMPONENT_ASPECT_RATIO || aspect > MAX_COMPONENT_ASPECT_RATIO {
+        if !(MIN_COMPONENT_ASPECT_RATIO..=MAX_COMPONENT_ASPECT_RATIO).contains(&aspect) {
             return false;
         }
 

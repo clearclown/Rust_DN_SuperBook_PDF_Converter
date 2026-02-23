@@ -110,7 +110,6 @@ impl MarkdownPipeline {
         let config = PipelineConfig {
             dpi: args.dpi,
             deskew: args.effective_deskew(),
-            margin_trim: 0.5,
             upscale: args.upscale,
             gpu: args.gpu,
             ocr: true, // Always enabled for Markdown
@@ -209,6 +208,17 @@ impl MarkdownPipeline {
             progress.on_step_complete("AI超解像", "完了");
         }
 
+        // Step 3.5: 180-degree rotation detection
+        if self.config.deskew {
+            progress.on_step_start("ページ回転検出中...");
+            let rotated_dir = work_dir.join("rotation_corrected");
+            std::fs::create_dir_all(&rotated_dir)?;
+
+            let corrected = self.step_rotation_detect(&rotated_dir, &current_images, progress)?;
+            current_images = corrected;
+            progress.on_step_complete("回転検出", "完了");
+        }
+
         // Step 4: Deskew
         if self.config.deskew {
             progress.on_step_start("傾き補正中...");
@@ -257,9 +267,7 @@ impl MarkdownPipeline {
         ));
 
         // Setup YomiToku (graceful fallback if venv unavailable)
-        let venv_path = std::env::var("SUPERBOOK_VENV")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("./ai_bridge/ai_venv"));
+        let venv_path = crate::resolve_venv_path();
         let bridge_config = crate::AiBridgeConfig::builder()
             .venv_path(venv_path.clone())
             .build();
@@ -492,6 +500,48 @@ impl MarkdownPipeline {
         Ok(output_paths)
     }
 
+    /// 180-degree rotation detection and correction step
+    fn step_rotation_detect<P: ProgressCallback>(
+        &self,
+        output_dir: &Path,
+        images: &[PathBuf],
+        progress: &P,
+    ) -> Result<Vec<PathBuf>, MarkdownPipelineError> {
+        let mut output_paths = Vec::with_capacity(images.len());
+        let mut corrected = 0usize;
+
+        for (idx, img_path) in images.iter().enumerate() {
+            let name = img_path
+                .file_name()
+                .map(|n| n.to_os_string())
+                .unwrap_or_else(|| format!("page_{:04}.png", idx).into());
+            let output_path = output_dir.join(&name);
+
+            match crate::ImageProcDeskewer::detect_upside_down(img_path) {
+                Ok(true) => {
+                    match crate::ImageProcDeskewer::correct_upside_down(img_path, &output_path) {
+                        Ok(()) => {
+                            corrected += 1;
+                            progress.on_debug(&format!("page {} を180度回転補正", idx));
+                        }
+                        Err(_) => {
+                            std::fs::copy(img_path, &output_path)?;
+                        }
+                    }
+                }
+                _ => {
+                    std::fs::copy(img_path, &output_path)?;
+                }
+            }
+            output_paths.push(output_path);
+        }
+
+        if corrected > 0 {
+            progress.on_debug(&format!("{}ページの180度回転を補正", corrected));
+        }
+        Ok(output_paths)
+    }
+
     /// Deskew step (reuses logic from pipeline)
     fn step_deskew<P: ProgressCallback>(
         &self,
@@ -532,9 +582,7 @@ impl MarkdownPipeline {
         images: &[PathBuf],
         progress: &P,
     ) -> Result<Vec<PathBuf>, MarkdownPipelineError> {
-        let venv_path = std::env::var("SUPERBOOK_VENV")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("./ai_bridge/ai_venv"));
+        let venv_path = crate::resolve_venv_path();
 
         let bridge_config = crate::AiBridgeConfig::builder()
             .venv_path(venv_path)

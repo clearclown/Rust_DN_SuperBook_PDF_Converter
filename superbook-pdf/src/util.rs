@@ -46,7 +46,7 @@
 //! ```
 
 use image::DynamicImage;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Millimeters per inch (exactly 25.4)
 const MM_PER_INCH: f32 = 25.4;
@@ -149,6 +149,38 @@ pub fn format_duration(duration: std::time::Duration) -> String {
     } else {
         format!("{}ms", millis)
     }
+}
+
+/// Resolve the Python venv path for AI bridge tools (RealESRGAN, YomiToku).
+///
+/// Resolution order:
+/// 1. `SUPERBOOK_VENV` environment variable (if set)
+/// 2. Relative to the executable: `<exe_dir>/ai_bridge/ai_venv`
+/// 3. Relative to the executable's parent: `<exe_dir>/../ai_bridge/ai_venv`
+/// 4. CWD-relative fallback: `./ai_bridge/ai_venv`
+pub fn resolve_venv_path() -> PathBuf {
+    // 1. Explicit env var takes priority
+    if let Ok(path) = std::env::var("SUPERBOOK_VENV") {
+        return PathBuf::from(path);
+    }
+
+    // 2-3. Try paths relative to the executable
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            let candidates = [
+                exe_dir.join("ai_bridge/ai_venv"),
+                exe_dir.join("../ai_bridge/ai_venv"),
+            ];
+            for candidate in &candidates {
+                if candidate.is_dir() {
+                    return candidate.to_path_buf();
+                }
+            }
+        }
+    }
+
+    // 4. CWD-relative fallback
+    PathBuf::from("./ai_bridge/ai_venv")
 }
 
 /// Clamp a value to a range

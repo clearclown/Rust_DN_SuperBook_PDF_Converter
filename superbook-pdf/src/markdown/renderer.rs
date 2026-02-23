@@ -245,10 +245,12 @@ impl MarkdownRenderer {
     pub fn render_list_item(&self, text: &str) -> String {
         // Strip existing bullet if present and add Markdown bullet
         let text = text.trim();
-        let text = if text.starts_with("• ") || text.starts_with("・") {
-            &text[3..]
-        } else if text.starts_with("- ") {
-            &text[2..]
+        let text = if let Some(stripped) = text.strip_prefix("• ") {
+            stripped
+        } else if let Some(stripped) = text.strip_prefix("・") {
+            stripped
+        } else if let Some(stripped) = text.strip_prefix("- ") {
+            stripped
         } else {
             text
         };

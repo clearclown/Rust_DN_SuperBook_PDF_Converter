@@ -434,6 +434,91 @@ impl ImageProcDeskewer {
             .collect()
     }
 
+    /// Detect if an image is rotated 180 degrees by comparing ink density
+    /// in the top vs bottom portions of the page.
+    ///
+    /// For text documents, the top portion typically has more content (title, headers)
+    /// than the bottom. If the bottom has significantly more ink, the page is likely
+    /// upside down.
+    ///
+    /// Returns `true` if the image appears to be rotated 180 degrees.
+    pub fn detect_upside_down(image_path: &Path) -> std::result::Result<bool, DeskewError> {
+        let img =
+            image::open(image_path).map_err(|e| DeskewError::InvalidFormat(e.to_string()))?;
+        let gray = img.to_luma8();
+        Ok(Self::is_upside_down(&gray))
+    }
+
+    /// Check if a grayscale image is upside down by ink density analysis.
+    fn is_upside_down(gray: &GrayImage) -> bool {
+        let (_width, height) = gray.dimensions();
+        if height < 20 {
+            return false;
+        }
+
+        let threshold = Self::otsu_threshold(gray);
+
+        // Compare ink density in top 25% vs bottom 25%
+        let quarter = height / 4;
+        let top_ink = Self::count_ink_pixels(gray, 0, quarter, threshold);
+        let bottom_ink = Self::count_ink_pixels(gray, height - quarter, height, threshold);
+
+        // Also check top 10% vs bottom 10% for header/footer detection
+        let tenth = height / 10;
+        let top_10_ink = Self::count_ink_pixels(gray, 0, tenth, threshold);
+        let bottom_10_ink = Self::count_ink_pixels(gray, height - tenth, height, threshold);
+
+        // Heuristic: if bottom has significantly more ink than top in BOTH
+        // quarter and tenth regions, likely upside down.
+        // Using ratio > 2.0 as threshold to avoid false positives.
+        let quarter_ratio = if top_ink > 0 {
+            bottom_ink as f64 / top_ink as f64
+        } else if bottom_ink > 0 {
+            10.0 // Top is empty, bottom has ink → likely upside down
+        } else {
+            1.0 // Both empty
+        };
+
+        let tenth_ratio = if top_10_ink > 0 {
+            bottom_10_ink as f64 / top_10_ink as f64
+        } else if bottom_10_ink > 0 {
+            10.0
+        } else {
+            1.0
+        };
+
+        // Must have strong evidence from both checks
+        quarter_ratio > 2.0 && tenth_ratio > 1.5
+    }
+
+    /// Count dark (ink) pixels in a horizontal band of the image.
+    fn count_ink_pixels(gray: &GrayImage, y_start: u32, y_end: u32, threshold: u8) -> u64 {
+        let (width, _) = gray.dimensions();
+        let mut count = 0u64;
+        for y in y_start..y_end {
+            for x in 0..width {
+                if gray.get_pixel(x, y).0[0] < threshold {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    /// Correct 180-degree rotation by flipping the image.
+    pub fn correct_upside_down(
+        image_path: &Path,
+        output_path: &Path,
+    ) -> std::result::Result<(), DeskewError> {
+        let img =
+            image::open(image_path).map_err(|e| DeskewError::InvalidFormat(e.to_string()))?;
+        let rotated = img.rotate180();
+        rotated
+            .save(output_path)
+            .map_err(|e| DeskewError::CorrectionFailed(e.to_string()))?;
+        Ok(())
+    }
+
     /// Calculate median of values
     pub fn median(values: &[f64]) -> f64 {
         if values.is_empty() {

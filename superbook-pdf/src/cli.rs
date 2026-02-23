@@ -430,7 +430,7 @@ pub struct ConvertArgs {
     no_deskew: bool,
 
     /// Margin trim percentage
-    #[arg(short, long, default_value_t = 0.5)]
+    #[arg(short, long, default_value_t = 0.7)]
     pub margin_trim: f32,
 
     /// Output DPI (1-4800)
@@ -712,7 +712,7 @@ mod tests {
             assert!(!args.ocr);
             assert!(args.effective_upscale());
             assert!(args.effective_deskew());
-            assert_eq!(args.margin_trim, 0.5);
+            assert_eq!(args.margin_trim, 0.7);
             assert_eq!(args.dpi, 300);
             assert!(args.effective_gpu());
             assert_eq!(args.verbose, 0);
