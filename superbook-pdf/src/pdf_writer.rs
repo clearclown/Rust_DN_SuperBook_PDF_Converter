@@ -94,9 +94,11 @@ pub struct PdfViewerHints {
     /// Page number shift: physical page N displays as logical page (N - shift)
     /// Set to Some(shift) to embed /PageLabels in the PDF catalog.
     pub page_number_shift: Option<i32>,
-    /// Whether the document uses vertical (right-to-left) text direction.
+    /// Whether the document should use right-to-left page progression.
     /// When true, sets /ViewerPreferences /Direction /R2L.
-    pub is_vertical: bool,
+    /// This applies to Japanese books (both vertical and horizontal text)
+    /// and other RTL-reading-order documents.
+    pub is_rtl: bool,
     /// First logical page number (default: 1).
     /// Used together with page_number_shift to set /PageLabels.
     pub first_logical_page: i32,
@@ -716,7 +718,7 @@ impl PrintPdfWriter {
 
         // 2. PageLayout: set spread viewing mode for book reading
         //    TwoPageRight = first page is displayed alone on the right (like a book cover)
-        if hints.page_number_shift.is_some() || hints.is_vertical {
+        if hints.page_number_shift.is_some() || hints.is_rtl {
             let catalog = doc
                 .catalog_mut()
                 .map_err(|e| PdfWriterError::GenerationError(format!("catalog: {}", e)))?;
@@ -724,8 +726,8 @@ impl PrintPdfWriter {
         }
 
         // 3. ViewerPreferences: set reading direction
-        if hints.is_vertical {
-            // R2L = right-to-left page progression (for vertical Japanese text)
+        if hints.is_rtl {
+            // R2L = right-to-left page progression (for Japanese books and RTL languages)
             let viewer_prefs = {
                 let catalog = doc
                     .catalog()
@@ -2569,7 +2571,7 @@ mod tests {
     fn test_viewer_hints_default() {
         let hints = PdfViewerHints::default();
         assert!(hints.page_number_shift.is_none());
-        assert!(!hints.is_vertical);
+        assert!(!hints.is_rtl);
         assert_eq!(hints.first_logical_page, 0);
     }
 
@@ -2577,14 +2579,14 @@ mod tests {
     fn test_viewer_hints_builder() {
         let hints = PdfViewerHints {
             page_number_shift: Some(5),
-            is_vertical: true,
+            is_rtl: true,
             first_logical_page: 1,
         };
         let options = PdfWriterOptions::builder().viewer_hints(hints).build();
         assert!(options.viewer_hints.is_some());
         let h = options.viewer_hints.unwrap();
         assert_eq!(h.page_number_shift, Some(5));
-        assert!(h.is_vertical);
+        assert!(h.is_rtl);
     }
 
     #[test]
@@ -2599,7 +2601,7 @@ mod tests {
         let options = PdfWriterOptions::builder()
             .viewer_hints(PdfViewerHints {
                 page_number_shift: Some(3),
-                is_vertical: false,
+                is_rtl: false,
                 first_logical_page: 1,
             })
             .build();
@@ -2626,7 +2628,7 @@ mod tests {
         let options = PdfWriterOptions::builder()
             .viewer_hints(PdfViewerHints {
                 page_number_shift: Some(2),
-                is_vertical: false,
+                is_rtl: false,
                 first_logical_page: 1,
             })
             .build();
@@ -2653,7 +2655,7 @@ mod tests {
         let options = PdfWriterOptions::builder()
             .viewer_hints(PdfViewerHints {
                 page_number_shift: None,
-                is_vertical: true,
+                is_rtl: true,
                 first_logical_page: 1,
             })
             .build();
@@ -2676,7 +2678,7 @@ mod tests {
                 assert_eq!(
                     dir.as_name_str().unwrap(),
                     "R2L",
-                    "Direction should be R2L for vertical text"
+                    "Direction should be R2L for RTL books"
                 );
             } else {
                 panic!("ViewerPreferences should be a dictionary");
@@ -2720,7 +2722,7 @@ mod tests {
         let options = PdfWriterOptions::builder()
             .viewer_hints(PdfViewerHints {
                 page_number_shift: Some(5),
-                is_vertical: false,
+                is_rtl: false,
                 first_logical_page: 1,
             })
             .build();
@@ -2745,7 +2747,7 @@ mod tests {
         let options = PdfWriterOptions::builder()
             .viewer_hints(PdfViewerHints {
                 page_number_shift: Some(2),
-                is_vertical: true,
+                is_rtl: true,
                 first_logical_page: 1,
             })
             .build();
