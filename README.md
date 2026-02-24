@@ -1,3 +1,15 @@
+<p align="center">
+  <b>🌐 Language / 言語</b><br>
+  <b>日本語</b> |
+  <a href="docs/readmeLangs/README.en.md">English</a> |
+  <a href="docs/readmeLangs/README.zh-CN.md">简体中文</a> |
+  <a href="docs/readmeLangs/README.zh-TW.md">繁體中文</a> |
+  <a href="docs/readmeLangs/README.ru.md">Русский</a> |
+  <a href="docs/readmeLangs/README.uk.md">Українська</a> |
+  <a href="docs/readmeLangs/README.fa.md">فارسی</a> |
+  <a href="docs/readmeLangs/README.ar.md">العربية</a>
+</p>
+
 # superbook-pdf
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
