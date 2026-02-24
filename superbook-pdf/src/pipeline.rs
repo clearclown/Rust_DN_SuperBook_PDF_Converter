@@ -661,6 +661,8 @@ impl PdfPipeline {
             &output_path,
             &reader.info,
             &ocr_results,
+            page_number_shift,
+            is_vertical,
             progress,
         )?;
 
@@ -1622,15 +1624,18 @@ impl PdfPipeline {
     }
 
     /// Step 13: Generate PDF
+    #[allow(clippy::too_many_arguments)]
     fn step_generate_pdf<P: ProgressCallback>(
         &self,
         images: &[PathBuf],
         output_path: &Path,
         pdf_info: &crate::PdfDocument,
         ocr_results: &[Option<crate::OcrResult>],
+        page_number_shift: Option<i32>,
+        is_vertical: bool,
         _progress: &P,
     ) -> Result<(), PipelineError> {
-        use crate::pdf_writer::{OcrLayer, OcrPageText, TextBlock};
+        use crate::pdf_writer::{OcrLayer, OcrPageText, PdfViewerHints, TextBlock};
 
         // Convert OCR results to OcrLayer
         let ocr_layer = if !ocr_results.is_empty() {
@@ -1666,6 +1671,17 @@ impl PdfPipeline {
             None
         };
 
+        // Build viewer hints from pipeline results
+        let viewer_hints = if page_number_shift.is_some() || is_vertical {
+            Some(PdfViewerHints {
+                page_number_shift,
+                is_vertical,
+                first_logical_page: 1,
+            })
+        } else {
+            None
+        };
+
         let mut pdf_builder = crate::PdfWriterOptions::builder()
             .dpi(self.config.dpi)
             .jpeg_quality(self.config.jpeg_quality)
@@ -1673,6 +1689,10 @@ impl PdfPipeline {
 
         if let Some(layer) = ocr_layer {
             pdf_builder = pdf_builder.ocr_layer(layer);
+        }
+
+        if let Some(hints) = viewer_hints {
+            pdf_builder = pdf_builder.viewer_hints(hints);
         }
 
         let pdf_options = pdf_builder.build();
