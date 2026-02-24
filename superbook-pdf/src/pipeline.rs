@@ -265,6 +265,13 @@ pub struct PipelineConfig {
     /// Deblur algorithm: "unsharp_mask", "nafnet", "deblurgan_v2"
     #[serde(default = "default_deblur_algorithm")]
     pub deblur_algorithm: String,
+    /// Assume Japanese book (enables R2L page progression even for horizontal text)
+    #[serde(default = "default_true")]
+    pub assume_japanese_book: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_shadow_removal() -> String {
@@ -308,6 +315,7 @@ impl Default for PipelineConfig {
             marker_colors: default_marker_colors(),
             deblur: false,
             deblur_algorithm: default_deblur_algorithm(),
+            assume_japanese_book: true,
         }
     }
 }
@@ -338,6 +346,7 @@ impl PipelineConfig {
             marker_colors: args.marker_colors.clone(),
             deblur: args.deblur,
             deblur_algorithm: format!("{:?}", args.deblur_algorithm).to_lowercase(),
+            assume_japanese_book: true,
         }
     }
 
@@ -1671,11 +1680,16 @@ impl PdfPipeline {
             None
         };
 
+        // Determine RTL reading direction:
+        // Japanese books use R2L page progression regardless of text orientation.
+        // Also enable for vertical text detection (covers CJK vertical writing).
+        let is_rtl = is_vertical || self.config.assume_japanese_book;
+
         // Build viewer hints from pipeline results
-        let viewer_hints = if page_number_shift.is_some() || is_vertical {
+        let viewer_hints = if page_number_shift.is_some() || is_rtl {
             Some(PdfViewerHints {
                 page_number_shift,
-                is_vertical,
+                is_rtl,
                 first_logical_page: 1,
             })
         } else {
