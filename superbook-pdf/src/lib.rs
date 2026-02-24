@@ -188,7 +188,8 @@ pub use page_number::{
 };
 pub use pdf_reader::{LopdfReader, PdfDocument, PdfMetadata, PdfPage, PdfReaderError};
 pub use pdf_writer::{
-    find_cjk_font, PdfWriterError, PdfWriterOptions, PdfWriterOptionsBuilder, PrintPdfWriter,
+    find_cjk_font, PdfViewerHints, PdfWriterError, PdfWriterOptions, PdfWriterOptionsBuilder,
+    PrintPdfWriter,
 };
 pub use realesrgan::{RealEsrgan, RealEsrganError, RealEsrganOptions, RealEsrganOptionsBuilder};
 pub use reprocess::{

@@ -88,6 +88,20 @@ pub enum PdfWriterError {
 
 pub type Result<T> = std::result::Result<T, PdfWriterError>;
 
+/// PDF viewer preferences for enhanced reading experience
+#[derive(Debug, Clone, Default)]
+pub struct PdfViewerHints {
+    /// Page number shift: physical page N displays as logical page (N - shift)
+    /// Set to Some(shift) to embed /PageLabels in the PDF catalog.
+    pub page_number_shift: Option<i32>,
+    /// Whether the document uses vertical (right-to-left) text direction.
+    /// When true, sets /ViewerPreferences /Direction /R2L.
+    pub is_vertical: bool,
+    /// First logical page number (default: 1).
+    /// Used together with page_number_shift to set /PageLabels.
+    pub first_logical_page: i32,
+}
+
 /// PDF generation options
 #[derive(Debug, Clone)]
 pub struct PdfWriterOptions {
@@ -105,6 +119,8 @@ pub struct PdfWriterOptions {
     pub ocr_layer: Option<OcrLayer>,
     /// CJK font path for OCR text (None = auto-detect system font)
     pub cjk_font_path: Option<PathBuf>,
+    /// Viewer hints (page labels, spread layout, reading direction)
+    pub viewer_hints: Option<PdfViewerHints>,
 }
 
 impl Default for PdfWriterOptions {
@@ -117,6 +133,7 @@ impl Default for PdfWriterOptions {
             metadata: None,
             ocr_layer: None,
             cjk_font_path: None,
+            viewer_hints: None,
         }
     }
 }
@@ -203,6 +220,13 @@ impl PdfWriterOptionsBuilder {
     #[must_use]
     pub fn cjk_font_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.options.cjk_font_path = Some(path.into());
+        self
+    }
+
+    /// Set viewer hints (page labels, reading direction, spread layout)
+    #[must_use]
+    pub fn viewer_hints(mut self, hints: PdfViewerHints) -> Self {
+        self.options.viewer_hints = Some(hints);
         self
     }
 
@@ -462,6 +486,11 @@ impl PrintPdfWriter {
         doc.save(&mut writer)
             .map_err(|e| PdfWriterError::GenerationError(e.to_string()))?;
 
+        // Post-process: embed viewer hints (page labels, reading direction, spread layout)
+        if let Some(ref hints) = options.viewer_hints {
+            Self::apply_viewer_hints(output, hints, images.len())?;
+        }
+
         Ok(())
     }
 
@@ -628,6 +657,106 @@ impl PrintPdfWriter {
 
             layer.use_text(&block.text, font_size_pt, Mm(x_mm), Mm(y_mm), font);
         }
+
+        Ok(())
+    }
+
+    /// Post-process PDF to embed PageLabels, PageLayout, and ViewerPreferences via lopdf.
+    fn apply_viewer_hints(
+        pdf_path: &Path,
+        hints: &PdfViewerHints,
+        page_count: usize,
+    ) -> Result<()> {
+        use lopdf::{dictionary, Document, Object};
+
+        let mut doc = Document::load(pdf_path)
+            .map_err(|e| PdfWriterError::GenerationError(format!("lopdf load: {}", e)))?;
+
+        // 1. PageLabels: embed logical page numbering
+        if let Some(shift) = hints.page_number_shift {
+            if shift != 0 && page_count > 0 {
+                let label_start_physical = shift.max(0) as usize;
+
+                let mut nums: Vec<Object> = Vec::new();
+
+                if label_start_physical > 0 && label_start_physical < page_count {
+                    // Front matter: roman numerals (i, ii, iii...)
+                    nums.push(Object::Integer(0));
+                    nums.push(Object::Dictionary(dictionary! {
+                        "S" => Object::Name(b"r".to_vec()),
+                    }));
+
+                    // Main content: Arabic numerals starting at 1
+                    nums.push(Object::Integer(label_start_physical as i64));
+                    nums.push(Object::Dictionary(dictionary! {
+                        "S" => Object::Name(b"D".to_vec()),
+                        "St" => Object::Integer(hints.first_logical_page as i64),
+                    }));
+                } else {
+                    // Simple case: all pages offset by shift
+                    let start_num = (1 - shift).max(1) as i64;
+                    nums.push(Object::Integer(0));
+                    nums.push(Object::Dictionary(dictionary! {
+                        "S" => Object::Name(b"D".to_vec()),
+                        "St" => Object::Integer(start_num),
+                    }));
+                }
+
+                let page_labels = dictionary! {
+                    "Nums" => Object::Array(nums),
+                };
+
+                let labels_ref = doc.add_object(Object::Dictionary(page_labels));
+                let catalog = doc
+                    .catalog_mut()
+                    .map_err(|e| PdfWriterError::GenerationError(format!("catalog: {}", e)))?;
+                catalog.set("PageLabels", Object::Reference(labels_ref));
+            }
+        }
+
+        // 2. PageLayout: set spread viewing mode for book reading
+        //    TwoPageRight = first page is displayed alone on the right (like a book cover)
+        if hints.page_number_shift.is_some() || hints.is_vertical {
+            let catalog = doc
+                .catalog_mut()
+                .map_err(|e| PdfWriterError::GenerationError(format!("catalog: {}", e)))?;
+            catalog.set("PageLayout", Object::Name(b"TwoPageRight".to_vec()));
+        }
+
+        // 3. ViewerPreferences: set reading direction
+        if hints.is_vertical {
+            // R2L = right-to-left page progression (for vertical Japanese text)
+            let viewer_prefs = {
+                let catalog = doc
+                    .catalog()
+                    .map_err(|e| PdfWriterError::GenerationError(format!("catalog: {}", e)))?;
+                if let Ok(existing) = catalog.get(b"ViewerPreferences") {
+                    match existing.clone() {
+                        Object::Dictionary(mut d) => {
+                            d.set("Direction", Object::Name(b"R2L".to_vec()));
+                            d
+                        }
+                        _ => dictionary! {
+                            "Direction" => Object::Name(b"R2L".to_vec()),
+                        },
+                    }
+                } else {
+                    dictionary! {
+                        "Direction" => Object::Name(b"R2L".to_vec()),
+                    }
+                }
+            };
+
+            let prefs_ref = doc.add_object(Object::Dictionary(viewer_prefs));
+            let catalog = doc
+                .catalog_mut()
+                .map_err(|e| PdfWriterError::GenerationError(format!("catalog: {}", e)))?;
+            catalog.set("ViewerPreferences", Object::Reference(prefs_ref));
+        }
+
+        // Save the modified PDF
+        doc.save(pdf_path)
+            .map_err(|e| PdfWriterError::GenerationError(format!("lopdf save: {}", e)))?;
 
         Ok(())
     }
@@ -2429,6 +2558,213 @@ mod tests {
             "High quality PDF ({} bytes) should be larger than low quality ({} bytes)",
             size_high,
             size_low
+        );
+    }
+
+    // ============================================================
+    // Viewer Hints Tests (PageLabels, PageLayout, ViewerPreferences)
+    // ============================================================
+
+    #[test]
+    fn test_viewer_hints_default() {
+        let hints = PdfViewerHints::default();
+        assert!(hints.page_number_shift.is_none());
+        assert!(!hints.is_vertical);
+        assert_eq!(hints.first_logical_page, 0);
+    }
+
+    #[test]
+    fn test_viewer_hints_builder() {
+        let hints = PdfViewerHints {
+            page_number_shift: Some(5),
+            is_vertical: true,
+            first_logical_page: 1,
+        };
+        let options = PdfWriterOptions::builder().viewer_hints(hints).build();
+        assert!(options.viewer_hints.is_some());
+        let h = options.viewer_hints.unwrap();
+        assert_eq!(h.page_number_shift, Some(5));
+        assert!(h.is_vertical);
+    }
+
+    #[test]
+    fn test_page_labels_embedded_in_pdf() {
+        let temp_dir = tempdir().unwrap();
+        let output = temp_dir.path().join("labeled.pdf");
+
+        let images: Vec<_> = (1..=5)
+            .map(|i| PathBuf::from(format!("tests/fixtures/book_page_{}.png", i)))
+            .collect();
+
+        let options = PdfWriterOptions::builder()
+            .viewer_hints(PdfViewerHints {
+                page_number_shift: Some(3),
+                is_vertical: false,
+                first_logical_page: 1,
+            })
+            .build();
+
+        PrintPdfWriter::create_from_images(&images, &output, &options).unwrap();
+        assert!(output.exists());
+
+        // Verify PageLabels exists in the catalog
+        let doc = lopdf::Document::load(&output).unwrap();
+        let catalog = doc.catalog().unwrap();
+        assert!(
+            catalog.get(b"PageLabels").is_ok(),
+            "PDF should have PageLabels entry"
+        );
+    }
+
+    #[test]
+    fn test_page_layout_set_for_spread() {
+        let temp_dir = tempdir().unwrap();
+        let output = temp_dir.path().join("spread.pdf");
+
+        let images = vec![PathBuf::from("tests/fixtures/book_page_1.png")];
+
+        let options = PdfWriterOptions::builder()
+            .viewer_hints(PdfViewerHints {
+                page_number_shift: Some(2),
+                is_vertical: false,
+                first_logical_page: 1,
+            })
+            .build();
+
+        PrintPdfWriter::create_from_images(&images, &output, &options).unwrap();
+
+        let doc = lopdf::Document::load(&output).unwrap();
+        let catalog = doc.catalog().unwrap();
+        let layout = catalog.get(b"PageLayout").unwrap();
+        assert_eq!(
+            layout.as_name_str().unwrap(),
+            "TwoPageRight",
+            "PageLayout should be TwoPageRight for book spread"
+        );
+    }
+
+    #[test]
+    fn test_vertical_r2l_direction() {
+        let temp_dir = tempdir().unwrap();
+        let output = temp_dir.path().join("vertical.pdf");
+
+        let images = vec![PathBuf::from("tests/fixtures/book_page_1.png")];
+
+        let options = PdfWriterOptions::builder()
+            .viewer_hints(PdfViewerHints {
+                page_number_shift: None,
+                is_vertical: true,
+                first_logical_page: 1,
+            })
+            .build();
+
+        PrintPdfWriter::create_from_images(&images, &output, &options).unwrap();
+
+        let doc = lopdf::Document::load(&output).unwrap();
+        let catalog = doc.catalog().unwrap();
+
+        // Check PageLayout is set
+        let layout = catalog.get(b"PageLayout").unwrap();
+        assert_eq!(layout.as_name_str().unwrap(), "TwoPageRight");
+
+        // Check ViewerPreferences has Direction R2L
+        let prefs_ref = catalog.get(b"ViewerPreferences").unwrap();
+        if let lopdf::Object::Reference(id) = prefs_ref {
+            let prefs = doc.get_object(*id).unwrap();
+            if let lopdf::Object::Dictionary(d) = prefs {
+                let dir = d.get(b"Direction").unwrap();
+                assert_eq!(
+                    dir.as_name_str().unwrap(),
+                    "R2L",
+                    "Direction should be R2L for vertical text"
+                );
+            } else {
+                panic!("ViewerPreferences should be a dictionary");
+            }
+        } else {
+            panic!("ViewerPreferences should be a reference");
+        }
+    }
+
+    #[test]
+    fn test_no_viewer_hints_no_modification() {
+        let temp_dir = tempdir().unwrap();
+        let output = temp_dir.path().join("no_hints.pdf");
+
+        let images = vec![PathBuf::from("tests/fixtures/book_page_1.png")];
+        let options = PdfWriterOptions::default();
+
+        PrintPdfWriter::create_from_images(&images, &output, &options).unwrap();
+
+        let doc = lopdf::Document::load(&output).unwrap();
+        let catalog = doc.catalog().unwrap();
+
+        // No viewer hints = no PageLabels, no PageLayout, no ViewerPreferences
+        assert!(
+            catalog.get(b"PageLabels").is_err(),
+            "Should not have PageLabels without viewer hints"
+        );
+    }
+
+    #[test]
+    fn test_page_labels_with_front_matter() {
+        let temp_dir = tempdir().unwrap();
+        let output = temp_dir.path().join("front_matter.pdf");
+
+        let images: Vec<_> = (1..=10)
+            .map(|i| PathBuf::from(format!("tests/fixtures/book_page_{}.png", i)))
+            .collect();
+
+        // shift=5 means pages 1-5 are front matter (roman numerals),
+        // page 6 onward is main content starting at page 1
+        let options = PdfWriterOptions::builder()
+            .viewer_hints(PdfViewerHints {
+                page_number_shift: Some(5),
+                is_vertical: false,
+                first_logical_page: 1,
+            })
+            .build();
+
+        PrintPdfWriter::create_from_images(&images, &output, &options).unwrap();
+
+        let doc = lopdf::Document::load(&output).unwrap();
+        let catalog = doc.catalog().unwrap();
+        assert!(catalog.get(b"PageLabels").is_ok());
+    }
+
+    #[test]
+    fn test_combined_hints_all_features() {
+        let temp_dir = tempdir().unwrap();
+        let output = temp_dir.path().join("all_hints.pdf");
+
+        let images: Vec<_> = (1..=5)
+            .map(|i| PathBuf::from(format!("tests/fixtures/book_page_{}.png", i)))
+            .collect();
+
+        // All features: page labels + spread + R2L
+        let options = PdfWriterOptions::builder()
+            .viewer_hints(PdfViewerHints {
+                page_number_shift: Some(2),
+                is_vertical: true,
+                first_logical_page: 1,
+            })
+            .build();
+
+        PrintPdfWriter::create_from_images(&images, &output, &options).unwrap();
+
+        let doc = lopdf::Document::load(&output).unwrap();
+        let catalog = doc.catalog().unwrap();
+
+        // All three features should be present
+        assert!(catalog.get(b"PageLabels").is_ok(), "PageLabels present");
+        assert_eq!(
+            catalog.get(b"PageLayout").unwrap().as_name_str().unwrap(),
+            "TwoPageRight",
+            "PageLayout set"
+        );
+        assert!(
+            catalog.get(b"ViewerPreferences").is_ok(),
+            "ViewerPreferences present"
         );
     }
 }
