@@ -13,6 +13,9 @@ use super::types::{
     TextDirectionOption,
 };
 
+use crate::image_extract::{ExtractOptions, LopdfExtractor};
+use crate::yomitoku::{YomiToku, YomiTokuOptions};
+
 // ============================================================
 // Types
 // ============================================================
@@ -138,23 +141,91 @@ impl MarkdownConverter {
         })
     }
 
-    /// Extract pages from PDF
+    /// Extract pages from PDF using image extraction + OCR
     fn extract_pages(&self, pdf_path: &Path) -> Result<Vec<PageContent>> {
-        // This would integrate with the existing pdf_reader and yomitoku modules
-        // For now, return a placeholder implementation
+        // Create a temporary directory for extracted images
+        let temp_dir = tempfile::tempdir().map_err(MarkdownError::IoError)?;
+        let extract_dir = temp_dir.path();
 
-        // In a full implementation:
-        // 1. Use pdf_reader to extract images
-        // 2. Use yomitoku for OCR
-        // 3. Convert OCR results to PageContent
+        // Step 1: Extract page images from PDF
+        let extract_options = ExtractOptions::default();
+        let extracted_pages = LopdfExtractor::extract_auto(pdf_path, extract_dir, &extract_options)
+            .map_err(|e| MarkdownError::InvalidPdf(format!("Image extraction failed: {}", e)))?;
 
-        // TODO: Integrate with pdf_reader and yomitoku for actual extraction
-        // log::info!("Extracting pages from: {:?}", pdf_path);
-        let _ = pdf_path; // Suppress unused warning
+        // Step 2: Setup OCR (graceful fallback if YomiToku unavailable)
+        let yomitoku = self.create_yomitoku();
+        let ocr_options = YomiTokuOptions::for_books();
 
-        // Placeholder: return empty pages
-        // Real implementation would call YomiToku OCR
-        Ok(Vec::new())
+        // Step 3: OCR each page and convert to PageContent
+        let mut pages = Vec::with_capacity(extracted_pages.len());
+
+        for (idx, extracted) in extracted_pages.iter().enumerate() {
+            let page_size = (extracted.width, extracted.height);
+            let page_number = idx + 1;
+
+            let page = if let Some(ref yt) = yomitoku {
+                match yt.ocr(&extracted.path, &ocr_options) {
+                    Ok(ocr_result) => self.ocr_result_to_page(page_number, page_size, &ocr_result),
+                    Err(_) => PageContent::new(page_number, page_size),
+                }
+            } else {
+                PageContent::new(page_number, page_size)
+            };
+
+            pages.push(page);
+        }
+
+        Ok(pages)
+    }
+
+    /// Try to create a YomiToku instance, returning None if unavailable
+    fn create_yomitoku(&self) -> Option<YomiToku> {
+        let venv_path = crate::resolve_venv_path();
+        let bridge_config = crate::ai_bridge::AiBridgeConfig::builder()
+            .venv_path(venv_path)
+            .build();
+        let bridge = crate::ai_bridge::SubprocessBridge::new(bridge_config).ok()?;
+        let yt = YomiToku::new(bridge);
+        if yt.is_available() {
+            Some(yt)
+        } else {
+            None
+        }
+    }
+
+    /// Convert a YomiToku OcrResult to a PageContent
+    fn ocr_result_to_page(
+        &self,
+        page_number: usize,
+        page_size: (u32, u32),
+        ocr_result: &crate::yomitoku::OcrResult,
+    ) -> PageContent {
+        let mut page = PageContent::new(page_number, page_size);
+
+        for block in &ocr_result.text_blocks {
+            let (x, y, w, h) = block.bbox;
+            let mut text_block = TextBlock::new(block.text.clone(), BoundingBox::new(x, y, w, h));
+            text_block.confidence = block.confidence as f64;
+            if let Some(fs) = block.font_size {
+                text_block.font_size = fs;
+            }
+            page.add_block(text_block);
+        }
+
+        // Detect elements (headings, figures, etc.)
+        let elements = ElementDetector::detect_elements(&page.text_blocks, page_size);
+        for element in elements {
+            if let super::element_detect::ElementType::Heading(level) = element.element_type {
+                for tb in &mut page.text_blocks {
+                    if tb.bbox.overlaps(&element.bbox) {
+                        tb.is_heading = true;
+                        tb.heading_level = level;
+                    }
+                }
+            }
+        }
+
+        page
     }
 
     /// Detect text direction from pages
@@ -186,13 +257,16 @@ impl MarkdownConverter {
         pages
     }
 
-    /// Extract images from PDF
-    fn extract_images(&self, _pdf_path: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
+    /// Extract images from PDF as individual page image files
+    fn extract_images(&self, pdf_path: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
         let images_dir = output_dir.join("images");
         std::fs::create_dir_all(&images_dir).map_err(MarkdownError::IoError)?;
 
-        // Placeholder: in real implementation, extract figures from PDF
-        Ok(Vec::new())
+        let extract_options = ExtractOptions::default();
+        let extracted_pages = LopdfExtractor::extract_auto(pdf_path, &images_dir, &extract_options)
+            .map_err(|e| MarkdownError::ImageError(format!("Image extraction failed: {}", e)))?;
+
+        Ok(extracted_pages.into_iter().map(|p| p.path).collect())
     }
 
     /// Generate metadata JSON
