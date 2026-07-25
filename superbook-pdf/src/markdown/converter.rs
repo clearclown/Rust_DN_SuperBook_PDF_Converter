@@ -152,8 +152,9 @@ impl MarkdownConverter {
         let extracted_pages = LopdfExtractor::extract_auto(pdf_path, extract_dir, &extract_options)
             .map_err(|e| MarkdownError::InvalidPdf(format!("Image extraction failed: {}", e)))?;
 
-        // Step 2: Setup OCR (graceful fallback if YomiToku unavailable)
-        let yomitoku = self.create_yomitoku();
+        // Step 2: Setup OCR. A missing venv is an explicit error unless
+        // options.allow_no_ocr opts into the no-OCR fallback (issue #55).
+        let yomitoku = self.create_yomitoku()?;
         let ocr_options = YomiTokuOptions::for_books();
 
         // Step 3: OCR each page and convert to PageContent
@@ -178,18 +179,43 @@ impl MarkdownConverter {
         Ok(pages)
     }
 
-    /// Try to create a YomiToku instance, returning None if unavailable
-    fn create_yomitoku(&self) -> Option<YomiToku> {
+    /// Create a YomiToku instance.
+    ///
+    /// Returns `Ok(None)` only when OCR is unavailable and
+    /// `options.allow_no_ocr` is set; otherwise a missing venv or
+    /// unimportable yomitoku is an explicit error.
+    fn create_yomitoku(&self) -> Result<Option<YomiToku>> {
         let venv_path = crate::resolve_venv_path();
         let bridge_config = crate::ai_bridge::AiBridgeConfig::builder()
-            .venv_path(venv_path)
+            .venv_path(venv_path.clone())
             .build();
-        let bridge = crate::ai_bridge::SubprocessBridge::new(bridge_config).ok()?;
+        let unavailable = |reason: String| {
+            MarkdownError::OcrFailed(format!(
+                "YomiToku is unavailable ({}; venv searched at {}). \
+                 Set the SUPERBOOK_VENV environment variable to your venv path, \
+                 or set MarkdownOptions::allow_no_ocr to continue without OCR",
+                reason,
+                venv_path.display()
+            ))
+        };
+        let bridge = match crate::ai_bridge::SubprocessBridge::new(bridge_config) {
+            Ok(bridge) => bridge,
+            Err(e) if self.options.allow_no_ocr => {
+                eprintln!("Warning: YomiToku unavailable ({}), continuing without OCR", e);
+                return Ok(None);
+            }
+            Err(e) => return Err(unavailable(e.to_string())),
+        };
         let yt = YomiToku::new(bridge);
         if yt.is_available() {
-            Some(yt)
+            Ok(Some(yt))
+        } else if self.options.allow_no_ocr {
+            eprintln!("Warning: yomitoku not importable in venv, continuing without OCR");
+            Ok(None)
         } else {
-            None
+            Err(unavailable(
+                "the venv exists but `import yomitoku` failed".to_string(),
+            ))
         }
     }
 

@@ -209,6 +209,12 @@ pub enum PipelineError {
     #[error("PDF generation failed: {0}")]
     PdfGenerationFailed(String),
 
+    #[error(
+        "OCR was requested (--ocr) but YomiToku is unavailable: {0}. \
+         Set the SUPERBOOK_VENV environment variable to your venv path"
+    )]
+    OcrUnavailable(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -1604,15 +1610,17 @@ impl PdfPipeline {
             .venv_path(venv_path)
             .build();
 
-        let bridge = match crate::SubprocessBridge::new(bridge_config) {
-            Ok(b) => b,
-            Err(e) => {
-                progress.on_warning(&format!("YomiToku not available: {}", e));
-                return Ok(vec![]);
-            }
-        };
+        // OCR only runs when explicitly requested (--ocr), so a missing venv
+        // is a hard error rather than a silent no-OCR fallback (issue #55).
+        let bridge = crate::SubprocessBridge::new(bridge_config)
+            .map_err(|e| PipelineError::OcrUnavailable(e.to_string()))?;
 
         let yomitoku = crate::YomiToku::new(bridge);
+        if !yomitoku.is_available() {
+            return Err(PipelineError::OcrUnavailable(
+                "the venv exists but `import yomitoku` failed".to_string(),
+            ));
+        }
         let mut ocr_opts = crate::YomiTokuOptions::builder();
         if self.config.gpu {
             ocr_opts = ocr_opts.use_gpu(true).gpu_id(0);

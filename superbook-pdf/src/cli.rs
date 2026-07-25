@@ -268,6 +268,11 @@ pub struct MarkdownArgs {
     /// Enable GPU processing
     #[arg(short, long)]
     pub gpu: bool,
+
+    /// Continue without OCR when YomiToku venv is unavailable
+    /// (default: fail with an explicit error)
+    #[arg(long = "allow-no-ocr")]
+    pub allow_no_ocr: bool,
 }
 
 impl MarkdownArgs {

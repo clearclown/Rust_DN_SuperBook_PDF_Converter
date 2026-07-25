@@ -30,6 +30,13 @@ pub enum MarkdownPipelineError {
     #[error("OCR error: {0}")]
     OcrError(String),
 
+    #[error(
+        "YomiToku OCR is unavailable ({reason}; venv searched at {venv:?}). \
+         Set the SUPERBOOK_VENV environment variable to your venv path, \
+         or pass --allow-no-ocr to continue without OCR"
+    )]
+    OcrUnavailable { venv: PathBuf, reason: String },
+
     #[error("Figure detection error: {0}")]
     FigureDetectError(String),
 
@@ -102,6 +109,7 @@ pub struct MarkdownPipelineResult {
 pub struct MarkdownPipeline {
     config: PipelineConfig,
     figure_options: FigureDetectOptions,
+    allow_no_ocr: bool,
 }
 
 impl MarkdownPipeline {
@@ -127,6 +135,7 @@ impl MarkdownPipeline {
         Self {
             config,
             figure_options,
+            allow_no_ocr: args.allow_no_ocr,
         }
     }
 
@@ -266,19 +275,42 @@ impl MarkdownPipeline {
             page_count
         ));
 
-        // Setup YomiToku (graceful fallback if venv unavailable)
+        // Setup YomiToku. By default a missing venv is a hard error (issue #55);
+        // --allow-no-ocr restores the old figure-detection-only fallback.
         let venv_path = crate::resolve_venv_path();
         let bridge_config = crate::AiBridgeConfig::builder()
             .venv_path(venv_path.clone())
             .build();
         let yomitoku = match crate::SubprocessBridge::new(bridge_config) {
-            Ok(bridge) => Some(crate::YomiToku::new(bridge)),
+            Ok(bridge) => {
+                let yt = crate::YomiToku::new(bridge);
+                if yt.is_available() {
+                    Some(yt)
+                } else if self.allow_no_ocr {
+                    progress.on_warning(
+                        "YomiToku利用不可 (venv内にyomitokuが見つかりません) — 図検出のみで続行します (--allow-no-ocr)",
+                    );
+                    None
+                } else {
+                    return Err(MarkdownPipelineError::OcrUnavailable {
+                        venv: venv_path,
+                        reason: "the venv exists but `import yomitoku` failed".to_string(),
+                    });
+                }
+            }
             Err(e) => {
-                progress.on_warning(&format!(
-                    "YomiToku利用不可 (venvが見つからないか初期化失敗): {} — 図検出のみで続行します",
-                    e
-                ));
-                None
+                if self.allow_no_ocr {
+                    progress.on_warning(&format!(
+                        "YomiToku利用不可 (venvが見つからないか初期化失敗): {} — 図検出のみで続行します (--allow-no-ocr)",
+                        e
+                    ));
+                    None
+                } else {
+                    return Err(MarkdownPipelineError::OcrUnavailable {
+                        venv: venv_path,
+                        reason: e.to_string(),
+                    });
+                }
             }
         };
 
@@ -684,6 +716,50 @@ mod tests {
         } else {
             panic!("Expected Markdown command");
         }
+    }
+
+    // ============ Issue #55: explicit failure when OCR unavailable ============
+
+    #[test]
+    fn test_from_args_allow_no_ocr_flag() {
+        use crate::cli::Cli;
+        use clap::Parser;
+        let cli =
+            Cli::try_parse_from(["superbook-pdf", "markdown", "input.pdf", "--allow-no-ocr"])
+                .unwrap();
+        if let crate::cli::Commands::Markdown(args) = cli.command {
+            assert!(args.allow_no_ocr);
+            let pipeline = MarkdownPipeline::from_args(&args);
+            assert!(pipeline.allow_no_ocr);
+        } else {
+            panic!("Expected Markdown command");
+        }
+    }
+
+    #[test]
+    fn test_from_args_ocr_required_by_default() {
+        use crate::cli::Cli;
+        use clap::Parser;
+        let cli = Cli::try_parse_from(["superbook-pdf", "markdown", "input.pdf"]).unwrap();
+        if let crate::cli::Commands::Markdown(args) = cli.command {
+            assert!(!args.allow_no_ocr);
+            let pipeline = MarkdownPipeline::from_args(&args);
+            assert!(!pipeline.allow_no_ocr);
+        } else {
+            panic!("Expected Markdown command");
+        }
+    }
+
+    #[test]
+    fn test_ocr_unavailable_error_mentions_remediation() {
+        let err = MarkdownPipelineError::OcrUnavailable {
+            venv: PathBuf::from("/nonexistent/venv"),
+            reason: "venv not found".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("SUPERBOOK_VENV"));
+        assert!(msg.contains("--allow-no-ocr"));
+        assert!(msg.contains("/nonexistent/venv"));
     }
 
     // ============ Additional Tests (Issue #41+ quality assurance) ============

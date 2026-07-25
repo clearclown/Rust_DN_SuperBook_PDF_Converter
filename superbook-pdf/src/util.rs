@@ -156,7 +156,8 @@ pub fn format_duration(duration: std::time::Duration) -> String {
 /// Resolution order:
 /// 1. `SUPERBOOK_VENV` environment variable (if set)
 /// 2. Relative to the executable: `<exe_dir>/ai_bridge/ai_venv`
-/// 3. Relative to the executable's parent: `<exe_dir>/../ai_bridge/ai_venv`
+/// 3. Relative to the executable's ancestors: `<exe_dir>/../ai_bridge/ai_venv`,
+///    `<exe_dir>/../../ai_bridge/ai_venv` (covers `target/{debug,release}` builds)
 /// 4. CWD-relative fallback: `./ai_bridge/ai_venv`
 pub fn resolve_venv_path() -> PathBuf {
     // 1. Explicit env var takes priority
@@ -170,6 +171,7 @@ pub fn resolve_venv_path() -> PathBuf {
             let candidates = [
                 exe_dir.join("ai_bridge/ai_venv"),
                 exe_dir.join("../ai_bridge/ai_venv"),
+                exe_dir.join("../../ai_bridge/ai_venv"),
             ];
             for candidate in &candidates {
                 if candidate.is_dir() {
@@ -208,6 +210,14 @@ pub fn percentage(current: usize, total: usize) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_resolve_venv_path_env_override() {
+        std::env::set_var("SUPERBOOK_VENV", "/custom/venv/path");
+        let path = resolve_venv_path();
+        std::env::remove_var("SUPERBOOK_VENV");
+        assert_eq!(path, PathBuf::from("/custom/venv/path"));
+    }
 
     #[test]
     fn test_pixels_to_mm() {

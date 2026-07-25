@@ -232,6 +232,10 @@ pub struct MarkdownOptions {
 
     /// OCR language (default: Japanese)
     pub ocr_language: String,
+
+    /// Continue without OCR when YomiToku is unavailable
+    /// (default: false — a missing venv is an explicit error)
+    pub allow_no_ocr: bool,
 }
 
 impl Default for MarkdownOptions {
@@ -246,6 +250,7 @@ impl Default for MarkdownOptions {
             include_page_numbers: true,
             generate_metadata: true,
             ocr_language: "ja".to_string(),
+            allow_no_ocr: false,
         }
     }
 }
@@ -322,6 +327,13 @@ impl MarkdownOptionsBuilder {
     #[must_use]
     pub fn image_output_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.options.image_output_dir = Some(dir.into());
+        self
+    }
+
+    /// Allow conversion to continue without OCR when YomiToku is unavailable
+    #[must_use]
+    pub fn allow_no_ocr(mut self, allow: bool) -> Self {
+        self.options.allow_no_ocr = allow;
         self
     }
 
