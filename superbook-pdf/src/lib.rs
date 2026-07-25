@@ -127,6 +127,7 @@ pub mod figure_detect;
 pub mod finalize;
 pub mod image_extract;
 pub mod margin;
+pub mod manifest;
 pub mod markdown_gen;
 pub mod markdown_pipeline;
 pub mod normalize;
@@ -217,6 +218,7 @@ pub use figure_detect::{
 pub use finalize::{
     FinalizeError, FinalizeOptions, FinalizeOptionsBuilder, FinalizeResult, PageFinalizer,
 };
+pub use manifest::{BookManifest, ChapterEntry};
 pub use markdown_gen::{ContentElement, MarkdownGenError, MarkdownGenerator, PageContent};
 pub use markdown_pipeline::{
     MarkdownPipeline, MarkdownPipelineError, MarkdownPipelineResult, ProgressState,

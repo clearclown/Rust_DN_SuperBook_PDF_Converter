@@ -400,6 +400,17 @@ impl MarkdownPipeline {
         let output_path = md_gen.merge_pages(&title, page_count)?;
         progress.on_step_complete("Markdown結合", &format!("{}", output_path.display()));
 
+        // Step 11: Book manifest with normalized, deduplicated chapters (issue #56)
+        progress.on_step_start("マニフェスト生成中...");
+        let manifest =
+            crate::manifest::BookManifest::from_page_files(&title, md_gen.pages_dir(), page_count);
+        let manifest_path = output_dir.join("book_manifest.json");
+        manifest.save(&manifest_path)?;
+        progress.on_step_complete(
+            "マニフェスト",
+            &format!("{}章 → {}", manifest.chapters.len(), manifest_path.display()),
+        );
+
         // Cleanup work directory
         if !self.config.save_debug {
             std::fs::remove_dir_all(&work_dir).ok();
