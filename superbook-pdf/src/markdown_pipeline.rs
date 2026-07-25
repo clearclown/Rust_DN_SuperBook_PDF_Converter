@@ -408,7 +408,11 @@ impl MarkdownPipeline {
         manifest.save(&manifest_path)?;
         progress.on_step_complete(
             "マニフェスト",
-            &format!("{}章 → {}", manifest.chapters.len(), manifest_path.display()),
+            &format!(
+                "{}章 → {}",
+                manifest.chapters.len(),
+                manifest_path.display()
+            ),
         );
 
         // Cleanup work directory
@@ -735,9 +739,8 @@ mod tests {
     fn test_from_args_allow_no_ocr_flag() {
         use crate::cli::Cli;
         use clap::Parser;
-        let cli =
-            Cli::try_parse_from(["superbook-pdf", "markdown", "input.pdf", "--allow-no-ocr"])
-                .unwrap();
+        let cli = Cli::try_parse_from(["superbook-pdf", "markdown", "input.pdf", "--allow-no-ocr"])
+            .unwrap();
         if let crate::cli::Commands::Markdown(args) = cli.command {
             assert!(args.allow_no_ocr);
             let pipeline = MarkdownPipeline::from_args(&args);

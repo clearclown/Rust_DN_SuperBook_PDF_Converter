@@ -61,7 +61,19 @@ pub(crate) fn is_heading_candidate_text(text: &str) -> bool {
     if let Some(last) = trimmed.chars().last() {
         if matches!(
             last,
-            '、' | '，' | ',' | '…' | '‥' | '：' | ':' | '「' | '『' | '（' | '(' | '【' | '〈' | '《'
+            '、' | '，'
+                | ','
+                | '…'
+                | '‥'
+                | '：'
+                | ':'
+                | '「'
+                | '『'
+                | '（'
+                | '('
+                | '【'
+                | '〈'
+                | '《'
         ) {
             return false;
         }
@@ -634,9 +646,7 @@ impl MarkdownGenerator {
     /// a text-shape sanity check and an OCR-confidence floor.
     fn heading_level(block: &TextBlock, median_size: f32) -> Option<u8> {
         let font_size = block.font_size?;
-        if block.confidence < HEADING_MIN_CONFIDENCE
-            || !is_heading_candidate_text(&block.text)
-        {
+        if block.confidence < HEADING_MIN_CONFIDENCE || !is_heading_candidate_text(&block.text) {
             return None;
         }
         if font_size >= median_size * HEADING_FONT_SIZE_RATIO {

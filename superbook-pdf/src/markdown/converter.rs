@@ -201,7 +201,10 @@ impl MarkdownConverter {
         let bridge = match crate::ai_bridge::SubprocessBridge::new(bridge_config) {
             Ok(bridge) => bridge,
             Err(e) if self.options.allow_no_ocr => {
-                eprintln!("Warning: YomiToku unavailable ({}), continuing without OCR", e);
+                eprintln!(
+                    "Warning: YomiToku unavailable ({}), continuing without OCR",
+                    e
+                );
                 return Ok(None);
             }
             Err(e) => return Err(unavailable(e.to_string())),

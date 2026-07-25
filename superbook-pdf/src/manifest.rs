@@ -170,9 +170,7 @@ fn is_title_punctuation(c: char) -> bool {
 /// Fold full-width ASCII (U+FF01..=U+FF5E) to half-width and lowercase
 fn normalize_char(c: char) -> char {
     let folded = match c {
-        '\u{FF01}'..='\u{FF5E}' => {
-            char::from_u32(c as u32 - 0xFEE0).unwrap_or(c)
-        }
+        '\u{FF01}'..='\u{FF5E}' => char::from_u32(c as u32 - 0xFEE0).unwrap_or(c),
         _ => c,
     };
     folded.to_ascii_lowercase()
@@ -202,8 +200,8 @@ mod tests {
         let raw = vec![
             (1, 2, "第1部".to_string()),
             (2, 2, "第1章 出発".to_string()),
-            (3, 2, "第1部".to_string()),   // running header repeat
-            (4, 2, "第 1 部".to_string()), // OCR variation of the same header
+            (3, 2, "第1部".to_string()),      // running header repeat
+            (4, 2, "第 1 部".to_string()),    // OCR variation of the same header
             (5, 2, "第1章 出発".to_string()), // running header repeat
             (7, 2, "第2章 到着".to_string()),
         ];
@@ -218,7 +216,11 @@ mod tests {
         assert_eq!(manifest.chapters[2].page, 7);
         // Indexes are sequential after dedupe
         assert_eq!(
-            manifest.chapters.iter().map(|c| c.index).collect::<Vec<_>>(),
+            manifest
+                .chapters
+                .iter()
+                .map(|c| c.index)
+                .collect::<Vec<_>>(),
             vec![1, 2, 3]
         );
     }
@@ -227,11 +229,7 @@ mod tests {
     fn test_from_page_files_scans_headings() {
         let tmp = tempfile::tempdir().unwrap();
         let pages = tmp.path();
-        std::fs::write(
-            pages.join("page_001.md"),
-            "## 第1章 出発\n\n本文です。\n",
-        )
-        .unwrap();
+        std::fs::write(pages.join("page_001.md"), "## 第1章 出発\n\n本文です。\n").unwrap();
         std::fs::write(
             pages.join("page_002.md"),
             "## 第1章 出発\n\n### 節タイトル\n\n続きの本文。\n",
@@ -256,11 +254,8 @@ mod tests {
     fn test_save_writes_valid_json() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("book_manifest.json");
-        let manifest = BookManifest::from_raw_headings(
-            "test",
-            5,
-            vec![(1, 2, "第1章".to_string())],
-        );
+        let manifest =
+            BookManifest::from_raw_headings("test", 5, vec![(1, 2, "第1章".to_string())]);
         manifest.save(&path).unwrap();
 
         let loaded: BookManifest =
