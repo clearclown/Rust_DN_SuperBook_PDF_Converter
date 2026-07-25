@@ -28,6 +28,60 @@ const MAX_NOISE_RATIO: f32 = 0.6;
 /// Minimum text length to apply noise filtering (short blocks like "1900" are kept)
 const NOISE_FILTER_MIN_LEN: usize = 8;
 
+/// Maximum character count for a heading candidate (issue #54)
+const HEADING_MAX_CHARS: usize = 40;
+
+/// Minimum OCR confidence for a heading candidate (issue #54)
+const HEADING_MIN_CONFIDENCE: f32 = 0.5;
+
+/// Validate that text looks like a real heading rather than a body-text
+/// fragment that happens to have a large font (issue #54).
+///
+/// Rejects:
+/// - empty or over-long text (real chapter titles are short)
+/// - text containing a Japanese full stop `。` (headings are not sentences;
+///   also covers fragments ending in `。」`)
+/// - text ending with continuation punctuation (`、` `，` `,` `…` `‥` `：` `:`)
+///   or a dangling opening bracket
+/// - text with more closing quotes/brackets than opening ones
+///   (a mid-sentence fragment like `...からだ」そうである`)
+pub(crate) fn is_heading_candidate_text(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > HEADING_MAX_CHARS {
+        return false;
+    }
+
+    // Headings are not sentences
+    if trimmed.contains('。') {
+        return false;
+    }
+
+    // Fragments cut mid-sentence end with continuation punctuation,
+    // and dangling openers are never valid heading endings
+    if let Some(last) = trimmed.chars().last() {
+        if matches!(
+            last,
+            '、' | '，' | ',' | '…' | '‥' | '：' | ':' | '「' | '『' | '（' | '(' | '【' | '〈' | '《'
+        ) {
+            return false;
+        }
+    }
+
+    // Unbalanced closing quotes/brackets indicate a fragment torn from a sentence
+    let unbalanced = [('「', '」'), ('『', '』'), ('（', '）'), ('(', ')')]
+        .iter()
+        .any(|&(open, close)| {
+            let opens = trimmed.chars().filter(|&c| c == open).count();
+            let closes = trimmed.chars().filter(|&c| c == close).count();
+            closes > opens
+        });
+    if unbalanced {
+        return false;
+    }
+
+    true
+}
+
 /// Error type for Markdown generation
 #[derive(Debug, Error)]
 pub enum MarkdownGenError {
@@ -572,17 +626,23 @@ impl MarkdownGenerator {
         }
     }
 
-    /// Determine the heading level for a text block based on its font size relative to the median
-    /// Returns None for body text, Some(2) for main headings, Some(3) for sub-headings
+    /// Determine the heading level for a text block.
+    /// Returns None for body text, Some(2) for main headings, Some(3) for sub-headings.
+    ///
+    /// Font size alone is not enough (issue #54: body lines with inflated OCR
+    /// font sizes were promoted to chapter headings); candidates must also pass
+    /// a text-shape sanity check and an OCR-confidence floor.
     fn heading_level(block: &TextBlock, median_size: f32) -> Option<u8> {
-        if let Some(font_size) = block.font_size {
-            if font_size >= median_size * HEADING_FONT_SIZE_RATIO {
-                Some(2) // ## Heading
-            } else if font_size >= median_size * SUBHEADING_FONT_SIZE_RATIO {
-                Some(3) // ### Sub-heading
-            } else {
-                None
-            }
+        let font_size = block.font_size?;
+        if block.confidence < HEADING_MIN_CONFIDENCE
+            || !is_heading_candidate_text(&block.text)
+        {
+            return None;
+        }
+        if font_size >= median_size * HEADING_FONT_SIZE_RATIO {
+            Some(2) // ## Heading
+        } else if font_size >= median_size * SUBHEADING_FONT_SIZE_RATIO {
+            Some(3) // ### Sub-heading
         } else {
             None
         }
@@ -1547,6 +1607,98 @@ mod tests {
             !text.contains("## 本文テキスト"),
             "Body text should NOT be a heading"
         );
+    }
+
+    // ============ Issue #54: reject body-text fragments as headings ============
+
+    #[test]
+    fn test_heading_candidate_rejects_sentence_fragments() {
+        // Real headings pass
+        assert!(is_heading_candidate_text("第1章 はじめに"));
+        assert!(is_heading_candidate_text("さおだけ屋はなぜつぶれないのか"));
+        assert!(is_heading_candidate_text("「ことば」のご馳走"));
+
+        // The exact failure mode from issue #54: mid-sentence fragment
+        assert!(!is_heading_candidate_text(
+            "さ、熱心さ、専門性に感服したからだ」そうである。"
+        ));
+
+        // Contains a full stop → not a heading
+        assert!(!is_heading_candidate_text("これは文です。"));
+        // Ends with continuation punctuation → fragment
+        assert!(!is_heading_candidate_text("それだけではなく、"));
+        // Unbalanced closing quote → fragment torn from a sentence
+        assert!(!is_heading_candidate_text("感服したからだ」そうである"));
+        // Over-long line → body text
+        let long_line = "あ".repeat(41);
+        assert!(!is_heading_candidate_text(&long_line));
+        // Empty
+        assert!(!is_heading_candidate_text("  "));
+    }
+
+    #[test]
+    fn test_heading_level_rejects_low_confidence_and_fragments() {
+        let make = |text: &str, confidence: f32| TextBlock {
+            text: text.into(),
+            bbox: (0, 0, 400, 50),
+            confidence,
+            direction: TextDirection::Horizontal,
+            font_size: Some(24.0), // 2.0x median → would be a heading by size
+        };
+
+        // Large font + valid title + good confidence → heading
+        assert_eq!(
+            MarkdownGenerator::heading_level(&make("第1章 出発", 0.9), 12.0),
+            Some(2)
+        );
+        // Same font but sentence fragment → rejected
+        assert_eq!(
+            MarkdownGenerator::heading_level(
+                &make("専門性に感服したからだ」そうである。", 0.9),
+                12.0
+            ),
+            None
+        );
+        // Same font but low OCR confidence → rejected
+        assert_eq!(
+            MarkdownGenerator::heading_level(&make("第1章 出発", 0.4), 12.0),
+            None
+        );
+    }
+
+    #[test]
+    fn test_structured_text_does_not_promote_sentence_fragment() {
+        let blocks = vec![
+            TextBlock {
+                text: "専門性に感服したからだ」そうである。".into(),
+                bbox: (0, 0, 400, 50),
+                confidence: 0.9,
+                direction: TextDirection::Horizontal,
+                font_size: Some(24.0), // large font, but a body fragment
+            },
+            TextBlock {
+                text: "本文テキスト".into(),
+                bbox: (0, 100, 400, 30),
+                confidence: 0.9,
+                direction: TextDirection::Horizontal,
+                font_size: Some(12.0),
+            },
+            TextBlock {
+                text: "もう一つの本文".into(),
+                bbox: (0, 150, 400, 30),
+                confidence: 0.9,
+                direction: TextDirection::Horizontal,
+                font_size: Some(12.0),
+            },
+        ];
+
+        let text = MarkdownGenerator::build_structured_text(&blocks, &TextDirection::Horizontal);
+        assert!(
+            !text.contains("## "),
+            "Sentence fragment must not become a heading, got: {}",
+            text
+        );
+        assert!(text.contains("専門性に感服したからだ」そうである。"));
     }
 
     #[test]

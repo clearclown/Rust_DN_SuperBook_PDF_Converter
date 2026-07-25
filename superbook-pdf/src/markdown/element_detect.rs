@@ -178,6 +178,13 @@ impl ElementDetector {
         let median_font_size = Self::median_font_size(blocks);
 
         for block in blocks {
+            // Issue #54: font size alone over-promotes body text to headings.
+            // Candidates must also look like a heading and have solid OCR confidence.
+            if block.confidence < 0.5
+                || !crate::markdown_gen::is_heading_candidate_text(&block.text)
+            {
+                continue;
+            }
             if let Some(level) = Self::estimate_heading_level(block.font_size, median_font_size) {
                 elements.push(DetectedElement::heading(
                     block.text.clone(),
@@ -437,6 +444,53 @@ mod tests {
             .collect();
 
         assert!(!headings.is_empty());
+    }
+
+    #[test]
+    fn test_detect_elements_rejects_sentence_fragment_heading() {
+        // Issue #54: a large-font body fragment must not become a heading
+        let blocks = vec![
+            make_block(
+                "さ、熱心さ、専門性に感服したからだ」そうである。",
+                0,
+                0,
+                200,
+                50,
+                30.0,
+            ),
+            make_block("Body text 1", 0, 100, 300, 20, 12.0),
+            make_block("Body text 2", 0, 130, 300, 20, 12.0),
+            make_block("Body text 3", 0, 160, 300, 20, 12.0),
+        ];
+
+        let elements = ElementDetector::detect_elements(&blocks, (400, 600));
+        let headings: Vec<_> = elements
+            .iter()
+            .filter(|e| matches!(e.element_type, ElementType::Heading(_)))
+            .collect();
+        assert!(
+            headings.is_empty(),
+            "sentence fragment must not be promoted to a heading"
+        );
+    }
+
+    #[test]
+    fn test_detect_elements_rejects_low_confidence_heading() {
+        let mut title = make_block("Title", 0, 0, 200, 50, 30.0);
+        title.confidence = 0.4; // below the 0.5 heading floor
+        let blocks = vec![
+            title,
+            make_block("Body text 1", 0, 100, 300, 20, 12.0),
+            make_block("Body text 2", 0, 130, 300, 20, 12.0),
+            make_block("Body text 3", 0, 160, 300, 20, 12.0),
+        ];
+
+        let elements = ElementDetector::detect_elements(&blocks, (400, 600));
+        let headings: Vec<_> = elements
+            .iter()
+            .filter(|e| matches!(e.element_type, ElementType::Heading(_)))
+            .collect();
+        assert!(headings.is_empty());
     }
 
     #[test]
