@@ -157,7 +157,7 @@ impl MarkdownPipeline {
             .to_string();
 
         // Create work directory for intermediate files
-        let work_dir = output_dir.join(format!(".work_{}", &title));
+        let work_dir = output_dir.join(format!(".work_{}", title));
         std::fs::create_dir_all(&work_dir)?;
 
         // Step 1: Extract images from PDF

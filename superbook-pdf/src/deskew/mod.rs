@@ -1019,7 +1019,7 @@ mod tests {
         // x position increases as y increases
         for y in 0..100 {
             let x = 50 + (y as f64 * 0.035) as u32; // ~2 degree tilt
-            if x < 200 && x >= 2 {
+            if (2..200).contains(&x) {
                 img.put_pixel(x - 2, y, image::Luma([200u8]));
                 img.put_pixel(x - 1, y, image::Luma([150u8]));
                 img.put_pixel(x, y, image::Luma([100u8]));

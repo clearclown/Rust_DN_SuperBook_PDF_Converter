@@ -142,7 +142,7 @@ mod tests {
         // Submit multiple jobs
         for i in 0..10 {
             let options = WebConvertOptions::default();
-            let job = Job::new(&format!("test{}.pdf", i), options);
+            let job = Job::new(format!("test{}.pdf", i), options);
             queue.submit(job);
         }
 
@@ -204,7 +204,7 @@ mod tests {
         // Submit 3 jobs
         for i in 0..3 {
             let options = WebConvertOptions::default();
-            let job = Job::new(&format!("file{}.pdf", i), options);
+            let job = Job::new(format!("file{}.pdf", i), options);
             queue.submit(job);
         }
 
@@ -287,7 +287,7 @@ mod tests {
         let mut batch = BatchJob::new(options.clone(), Priority::Normal);
 
         // Create jobs for batch
-        let filenames = vec!["doc1.pdf", "doc2.pdf", "doc3.pdf"];
+        let filenames = ["doc1.pdf", "doc2.pdf", "doc3.pdf"];
         batch_queue.create_jobs(
             &mut batch,
             &filenames.iter().map(|s| s.to_string()).collect::<Vec<_>>(),

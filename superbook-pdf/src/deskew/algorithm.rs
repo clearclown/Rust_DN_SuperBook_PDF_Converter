@@ -1354,7 +1354,7 @@ mod tests {
         // Threshold should be between foreground and background (inclusive)
         // A threshold of exactly 30 or 230 would still separate the two modes
         assert!(
-            threshold >= 30 && threshold <= 230,
+            (30..=230).contains(&threshold),
             "Otsu threshold {} should be between 30 and 230 (inclusive)",
             threshold
         );

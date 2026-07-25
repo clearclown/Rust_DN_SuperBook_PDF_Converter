@@ -162,10 +162,10 @@ impl ReadingOrderSorter {
         for group in &mut groups {
             match direction {
                 TextDirection::Horizontal => {
-                    group.sort_by(|a, b| a.bbox.x.cmp(&b.bbox.x));
+                    group.sort_by_key(|a| a.bbox.x);
                 }
                 TextDirection::Vertical => {
-                    group.sort_by(|a, b| a.bbox.y.cmp(&b.bbox.y));
+                    group.sort_by_key(|a| a.bbox.y);
                 }
             }
         }

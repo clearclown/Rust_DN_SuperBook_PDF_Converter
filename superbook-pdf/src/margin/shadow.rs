@@ -718,7 +718,7 @@ mod tests {
 
         // Add shadow gradient on left edge
         for x in 0..50 {
-            let brightness = (128 + (x as u32 * 2)) as u8;
+            let brightness = (128 + (x * 2)) as u8;
             for y in 0..100 {
                 image.put_pixel(x, y, Rgb([brightness, brightness, brightness]));
             }

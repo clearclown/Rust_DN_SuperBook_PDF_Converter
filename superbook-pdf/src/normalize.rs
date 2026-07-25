@@ -510,15 +510,14 @@ impl ImageNormalizer {
             }
         }
 
-        if count == 0 {
+        match (
+            sum_r.checked_div(count),
+            sum_g.checked_div(count),
+            sum_b.checked_div(count),
+        ) {
+            (Some(r), Some(g), Some(b)) => PaperColor::new(r as u8, g as u8, b as u8),
             // Fallback to white
-            PaperColor::new(255, 255, 255)
-        } else {
-            PaperColor::new(
-                (sum_r / count) as u8,
-                (sum_g / count) as u8,
-                (sum_b / count) as u8,
-            )
+            _ => PaperColor::new(255, 255, 255),
         }
     }
 
@@ -625,14 +624,13 @@ impl ImageNormalizer {
             }
         }
 
-        if count == 0 {
-            Self::estimate_paper_color(image)
-        } else {
-            PaperColor::new(
-                (sum_r / count) as u8,
-                (sum_g / count) as u8,
-                (sum_b / count) as u8,
-            )
+        match (
+            sum_r.checked_div(count),
+            sum_g.checked_div(count),
+            sum_b.checked_div(count),
+        ) {
+            (Some(r), Some(g), Some(b)) => PaperColor::new(r as u8, g as u8, b as u8),
+            _ => Self::estimate_paper_color(image),
         }
     }
 

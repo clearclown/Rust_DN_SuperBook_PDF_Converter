@@ -319,8 +319,10 @@ mod tests {
     // SHUT-006: ジョブ完了待機 (タイムアウト)
     #[tokio::test]
     async fn test_graceful_shutdown_timeout() {
-        let mut config = ShutdownConfig::default();
-        config.timeout_secs = 1; // 1 second timeout
+        let config = ShutdownConfig {
+            timeout_secs: 1, // 1 second timeout
+            ..Default::default()
+        };
         let coordinator = ShutdownCoordinator::new(config);
 
         // Simulate 5 pending jobs that never complete
@@ -380,8 +382,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_graceful_shutdown_no_wait() {
-        let mut config = ShutdownConfig::default();
-        config.wait_for_jobs = false;
+        let config = ShutdownConfig {
+            wait_for_jobs: false,
+            ..Default::default()
+        };
         let coordinator = ShutdownCoordinator::new(config);
 
         // Even with pending jobs, should return immediately
