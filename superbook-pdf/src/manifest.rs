@@ -24,6 +24,12 @@ pub struct BookManifest {
     pub title: String,
     /// Total number of pages processed
     pub total_pages: usize,
+    /// Last page of the main content (1-based), when trailing back matter
+    /// (奥付・出版目録・索引 — issue #60) was detected. Pages after this are
+    /// colophon/catalog noise; they stay in the markdown (a false positive
+    /// must never destroy body text) and downstream slices using this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub main_content_end_page: Option<usize>,
     /// Deduplicated chapter list in reading order
     pub chapters: Vec<ChapterEntry>,
 }
@@ -109,6 +115,8 @@ impl BookManifest {
             version: 1,
             title: title.to_string(),
             total_pages,
+            // Filled in by the pipeline after back-matter detection (#60)
+            main_content_end_page: None,
             chapters,
         }
     }

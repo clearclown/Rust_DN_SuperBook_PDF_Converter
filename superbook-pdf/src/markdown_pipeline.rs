@@ -402,8 +402,18 @@ impl MarkdownPipeline {
 
         // Step 11: Book manifest with normalized, deduplicated chapters (issue #56)
         progress.on_step_start("マニフェスト生成中...");
-        let manifest =
+        let mut manifest =
             crate::manifest::BookManifest::from_page_files(&title, md_gen.pages_dir(), page_count);
+        // Issue #60: record where the main content ends so downstream can
+        // slice off trailing colophon/catalog pages (kept in the markdown).
+        manifest.main_content_end_page =
+            crate::back_matter::detect_main_content_end(md_gen.pages_dir(), page_count);
+        if let Some(end) = manifest.main_content_end_page {
+            progress.on_debug(&format!(
+                "巻末検出: 本編は {} ページ目まで（以降は奥付・目録等）",
+                end
+            ));
+        }
         let manifest_path = output_dir.join("book_manifest.json");
         manifest.save(&manifest_path)?;
         progress.on_step_complete(

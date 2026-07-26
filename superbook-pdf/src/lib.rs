@@ -118,6 +118,7 @@
 //! AGPL-3.0
 
 pub mod ai_bridge;
+pub mod back_matter;
 pub mod cache;
 pub mod cli;
 pub mod color_stats;
