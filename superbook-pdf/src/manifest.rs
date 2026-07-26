@@ -8,8 +8,12 @@
 //! occurrence of each key as a chapter start.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::Path;
+
+/// A repeated title within this many pages of its previous occurrence is
+/// treated as a running-header (柱) repeat and dropped from the chapter list.
+const RUNNING_HEADER_PAGE_WINDOW: usize = 3;
 
 /// Book-level manifest written next to the merged markdown output
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,28 +70,40 @@ impl BookManifest {
     }
 
     /// Build a manifest from raw `(page, level, heading)` tuples in reading
-    /// order, dropping running-header repetitions: only the first occurrence
-    /// of each normalized title key becomes a chapter.
+    /// order, dropping running-header (柱) repetitions.
+    ///
+    /// A repeated title counts as a running header only when it reappears
+    /// within [`RUNNING_HEADER_PAGE_WINDOW`] pages of its previous
+    /// occurrence — running headers recur every page or two, while a
+    /// legitimately repeated section title (「まとめ」per chapter, etc.)
+    /// reappears much further away and is kept as a new chapter (issue #64).
+    /// A complete fix would detect the alternating periodicity of running
+    /// headers instead of using a fixed page window.
     pub fn from_raw_headings(
         title: &str,
         total_pages: usize,
         raw: Vec<(usize, u8, String)>,
     ) -> Self {
-        let mut seen: HashSet<String> = HashSet::new();
+        let mut last_seen: HashMap<String, usize> = HashMap::new();
         let mut chapters = Vec::new();
         for (page, level, text) in raw {
             let key = title_key(&text);
             if key.is_empty() {
                 continue;
             }
-            if seen.insert(key) {
-                chapters.push(ChapterEntry {
-                    index: chapters.len() + 1,
-                    title: text,
-                    level,
-                    page,
-                });
+            let is_running_header_repeat = last_seen
+                .get(&key)
+                .is_some_and(|&prev| page.saturating_sub(prev) <= RUNNING_HEADER_PAGE_WINDOW);
+            last_seen.insert(key, page);
+            if is_running_header_repeat {
+                continue;
             }
+            chapters.push(ChapterEntry {
+                index: chapters.len() + 1,
+                title: text,
+                level,
+                page,
+            });
         }
         Self {
             version: 1,
@@ -107,15 +123,21 @@ impl BookManifest {
 
 /// Normalize a heading title to a comparison key so that OCR variations of
 /// the same running header (「第1部」/「第 1 部」/「第１部」) collapse together:
+/// - fold full-width ASCII to half-width, lowercase (BEFORE filtering, so
+///   `～` U+FF5E folds to `~` and is then stripped like `〜` U+301C — the
+///   wave-dash pair is a classic Japanese OCR variation, issue #64)
 /// - strip all whitespace (ASCII and full-width)
 /// - drop punctuation and bracket characters
-/// - fold full-width ASCII to half-width, lowercase
+///
+/// A complete fix would apply full NFKC normalization and fuzzy (edit
+/// distance) matching; folding + punctuation stripping covers the common
+/// OCR variations without new dependencies.
 pub fn title_key(title: &str) -> String {
     title
         .chars()
+        .map(normalize_char)
         .filter(|c| !c.is_whitespace())
         .filter(|c| !is_title_punctuation(*c))
-        .map(normalize_char)
         .collect()
 }
 
@@ -158,13 +180,13 @@ fn is_title_punctuation(c: char) -> bool {
             | '］'
             | '['
             | ']'
-            | '－'
-            | '-'
-            | 'ー'
-            | '―'
             | '〜'
             | '~'
     )
+    // NOTE (issue #64): hyphen/long-vowel characters (`-` `－` `ー` `―`) are
+    // deliberately NOT stripped — removing them collapsed distinct titles
+    // like 第1-2章 and 第12章 (or スーパー and スパ) into one key, deleting
+    // real chapters as false running-header repeats.
 }
 
 /// Fold full-width ASCII (U+FF01..=U+FF5E) to half-width and lowercase
@@ -192,6 +214,54 @@ mod tests {
     fn test_title_key_ignores_punctuation() {
         assert_eq!(title_key("「第1章」出発"), title_key("第1章 出発"));
         assert_ne!(title_key("第1章"), title_key("第2章"));
+    }
+
+    #[test]
+    fn test_title_key_wave_dash_variants_collapse() {
+        // Issue #64: U+FF5E must fold before punctuation filtering so both
+        // wave-dash forms produce the same key
+        assert_eq!(title_key("序章～出会い"), title_key("序章〜出会い"));
+        assert_eq!(title_key("序章~出会い"), title_key("序章〜出会い"));
+    }
+
+    #[test]
+    fn test_title_key_keeps_hyphen_distinctions() {
+        // Issue #64: stripping hyphens/long vowels collapsed distinct titles
+        assert_ne!(title_key("第1-2章"), title_key("第12章"));
+        assert_ne!(title_key("スーパー"), title_key("スパ"));
+        // Full-width hyphen folds to ASCII hyphen, staying consistent
+        assert_eq!(title_key("第１－２章"), title_key("第1-2章"));
+    }
+
+    #[test]
+    fn test_distant_repeated_section_titles_are_kept() {
+        // Issue #64: a per-chapter「まとめ」far from its previous occurrence
+        // is a real section, not a running header
+        let raw = vec![
+            (2, 2, "第1章".to_string()),
+            (10, 3, "まとめ".to_string()),
+            (12, 2, "第2章".to_string()),
+            (40, 3, "まとめ".to_string()), // 30 pages later → keep
+        ];
+        let manifest = BookManifest::from_raw_headings("test", 50, raw);
+        assert_eq!(manifest.chapters.len(), 4);
+        assert_eq!(manifest.chapters[3].title, "まとめ");
+        assert_eq!(manifest.chapters[3].page, 40);
+    }
+
+    #[test]
+    fn test_continuous_running_header_chain_is_collapsed() {
+        // A running header repeating every other page stays suppressed
+        // because each repeat is within the window of the previous one
+        let raw = vec![
+            (1, 2, "第1部".to_string()),
+            (3, 2, "第1部".to_string()),
+            (5, 2, "第1部".to_string()),
+            (7, 2, "第1部".to_string()),
+        ];
+        let manifest = BookManifest::from_raw_headings("test", 10, raw);
+        assert_eq!(manifest.chapters.len(), 1);
+        assert_eq!(manifest.chapters[0].page, 1);
     }
 
     #[test]

@@ -213,9 +213,17 @@ mod tests {
 
     #[test]
     fn test_resolve_venv_path_env_override() {
+        // Save and restore any real SUPERBOOK_VENV so this test cannot wipe
+        // a developer's setting (issue #64). Parallel tests do not read this
+        // variable, but mutating process env is inherently racy — assert
+        // before restoring so a failure still restores the original value.
+        let saved = std::env::var_os("SUPERBOOK_VENV");
         std::env::set_var("SUPERBOOK_VENV", "/custom/venv/path");
         let path = resolve_venv_path();
-        std::env::remove_var("SUPERBOOK_VENV");
+        match saved {
+            Some(value) => std::env::set_var("SUPERBOOK_VENV", value),
+            None => std::env::remove_var("SUPERBOOK_VENV"),
+        }
         assert_eq!(path, PathBuf::from("/custom/venv/path"));
     }
 
