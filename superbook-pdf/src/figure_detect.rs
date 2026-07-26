@@ -409,6 +409,8 @@ mod tests {
             confidence: 0.95,
             direction: TextDirection::Vertical,
             font_size: Some(12.0),
+            role: None,
+            order: None,
         }];
         let ocr = make_ocr_result(blocks);
         let opts = FigureDetectOptions::default();
@@ -555,6 +557,8 @@ mod tests {
             confidence: 0.95,
             direction: TextDirection::Horizontal,
             font_size: Some(12.0),
+            role: None,
+            order: None,
         }];
         let ocr = make_ocr_result(blocks);
         let opts = FigureDetectOptions::default();
@@ -600,6 +604,8 @@ mod tests {
             confidence: 0.9,
             direction: TextDirection::Horizontal,
             font_size: Some(12.0),
+            role: None,
+            order: None,
         }];
         let ocr = make_ocr_result(blocks);
         let opts = FigureDetectOptions::default();
@@ -655,6 +661,8 @@ mod tests {
             confidence: 0.9,
             direction: TextDirection::Horizontal,
             font_size: Some(12.0),
+            role: None,
+            order: None,
         }];
         let area = FigureDetector::calculate_text_area(&blocks, 1000, 1000);
         // Clamped: w = min(200, 1000-900) = 100, h = min(200, 1000-900) = 100
@@ -771,6 +779,8 @@ mod tests {
             confidence: 0.9,
             direction: TextDirection::Horizontal,
             font_size: Some(12.0),
+            role: None,
+            order: None,
         }];
         let ocr = make_ocr_result(blocks);
         let opts = FigureDetectOptions {
@@ -809,6 +819,8 @@ mod tests {
             confidence: 0.9,
             direction: TextDirection::Horizontal,
             font_size: Some(12.0),
+            role: None,
+            order: None,
         }];
         let ocr = make_ocr_result(blocks);
         let opts = FigureDetectOptions {
@@ -843,6 +855,8 @@ mod tests {
             confidence: 0.9,
             direction: TextDirection::Horizontal,
             font_size: Some(12.0),
+            role: None,
+            order: None,
         }];
         let ocr = make_ocr_result(blocks);
         let opts = FigureDetectOptions::default();

@@ -681,6 +681,8 @@ mod tests {
             confidence: 0.95,
             direction: TextDirection::Horizontal,
             font_size: Some(12.0),
+            role: None,
+            order: None,
         };
 
         let vertical = TextBlock {
@@ -689,6 +691,8 @@ mod tests {
             confidence: 0.95,
             direction: TextDirection::Vertical,
             font_size: Some(12.0),
+            role: None,
+            order: None,
         };
 
         assert!(matches!(horizontal.direction, TextDirection::Horizontal));

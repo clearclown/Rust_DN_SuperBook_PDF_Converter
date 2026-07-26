@@ -276,6 +276,28 @@ pub struct TextBlock {
     pub direction: TextDirection,
     /// Font size estimate (points)
     pub font_size: Option<f32>,
+    /// Layout role from YomiToku's DocumentAnalyzer (issue #61), e.g.
+    /// "section_headings", "page_header", "page_footer". Passed through
+    /// verbatim because the vocabulary depends on the YomiToku version.
+    pub role: Option<String>,
+    /// Reading order assigned by the layout analyzer (if provided)
+    pub order: Option<u32>,
+}
+
+impl TextBlock {
+    /// True when the layout analyzer marked this block as a section heading
+    pub fn is_section_heading(&self) -> bool {
+        self.role.as_deref() == Some("section_headings")
+    }
+
+    /// True for running headers / footers (柱・ノンブル) that should not be
+    /// treated as body text
+    pub fn is_page_furniture(&self) -> bool {
+        matches!(
+            self.role.as_deref(),
+            Some("page_header") | Some("page_footer") | Some("header") | Some("footer")
+        )
+    }
 }
 
 /// Text direction
@@ -487,6 +509,9 @@ impl YomiToku {
                 confidence,
                 direction,
                 font_size,
+                // Legacy output format carries no layout information
+                role: None,
+                order: None,
             });
         }
 
@@ -539,12 +564,24 @@ impl YomiToku {
                 _ => TextDirection::Horizontal,
             };
 
+            let role = block
+                .get("role")
+                .and_then(|r| r.as_str())
+                .map(|s| s.to_string());
+
+            let order = block
+                .get("order")
+                .and_then(|o| o.as_u64())
+                .map(|o| o as u32);
+
             text_blocks.push(TextBlock {
                 text,
                 bbox: bbox_arr,
                 confidence,
                 direction,
                 font_size: None,
+                role,
+                order,
             });
         }
 
@@ -667,6 +704,8 @@ mod tests {
             confidence: 0.95,
             direction: TextDirection::Horizontal,
             font_size: Some(12.0),
+            role: None,
+            order: None,
         };
 
         assert_eq!(block.text, "テスト");
@@ -721,6 +760,8 @@ mod tests {
                     confidence: 0.9,
                     direction: TextDirection::Horizontal,
                     font_size: None,
+                    role: None,
+                    order: None,
                 },
                 TextBlock {
                     text: "行2".to_string(),
@@ -728,6 +769,8 @@ mod tests {
                     confidence: 0.85,
                     direction: TextDirection::Horizontal,
                     font_size: None,
+                    role: None,
+                    order: None,
                 },
             ],
             confidence: 0.875,
@@ -785,6 +828,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: None,
+                role: None,
+                order: None,
             }],
             confidence: 0.9,
             processing_time: Duration::from_millis(50),
@@ -861,6 +906,8 @@ mod tests {
                 confidence: 0.95,
                 direction: TextDirection::Horizontal,
                 font_size: Some(24.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "本文内容".to_string(),
@@ -868,6 +915,8 @@ mod tests {
                 confidence: 0.88,
                 direction: TextDirection::Vertical,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
         ];
 
@@ -949,6 +998,8 @@ mod tests {
             confidence: 0.9,
             direction: TextDirection::Horizontal,
             font_size: None,
+            role: None,
+            order: None,
         };
 
         assert!(block.font_size.is_none());
@@ -964,6 +1015,8 @@ mod tests {
             confidence: 0.0,
             direction: TextDirection::Horizontal,
             font_size: None,
+            role: None,
+            order: None,
         };
         assert_eq!(zero_bbox.bbox.2, 0); // width
         assert_eq!(zero_bbox.bbox.3, 0); // height
@@ -975,6 +1028,8 @@ mod tests {
             confidence: 1.0,
             direction: TextDirection::Vertical,
             font_size: Some(72.0),
+            role: None,
+            order: None,
         };
         assert_eq!(large_bbox.bbox.2, 10000);
         assert_eq!(large_bbox.bbox.3, 15000);
@@ -1023,6 +1078,8 @@ mod tests {
                     confidence: 0.9,
                     direction: TextDirection::Horizontal,
                     font_size: Some(12.0),
+                    role: None,
+                    order: None,
                 }],
                 confidence: 0.9,
                 processing_time: Duration::from_millis(100),
@@ -1095,6 +1152,8 @@ mod tests {
                     confidence: 0.9,
                     direction: TextDirection::Horizontal,
                     font_size: None,
+                    role: None,
+                    order: None,
                 },
                 TextBlock {
                     text: "Second".to_string(),
@@ -1102,6 +1161,8 @@ mod tests {
                     confidence: 0.9,
                     direction: TextDirection::Horizontal,
                     font_size: None,
+                    role: None,
+                    order: None,
                 },
                 TextBlock {
                     text: "Third".to_string(),
@@ -1109,6 +1170,8 @@ mod tests {
                     confidence: 0.9,
                     direction: TextDirection::Horizontal,
                     font_size: None,
+                    role: None,
+                    order: None,
                 },
             ],
             confidence: 0.9,
@@ -1197,6 +1260,8 @@ mod tests {
             confidence: 0.95,
             direction: TextDirection::Vertical,
             font_size: Some(14.0),
+            role: None,
+            order: None,
         };
         let debug_str = format!("{:?}", block);
         assert!(debug_str.contains("TextBlock"));
@@ -1211,6 +1276,8 @@ mod tests {
             confidence: 0.9,
             direction: TextDirection::Horizontal,
             font_size: Some(12.0),
+            role: None,
+            order: None,
         };
         let cloned = original.clone();
         assert_eq!(cloned.text, original.text);
@@ -1314,6 +1381,8 @@ mod tests {
             confidence: 0.9,
             direction: TextDirection::Horizontal,
             font_size: None,
+            role: None,
+            order: None,
         };
         assert!(block.text.contains("日本語"));
         assert!(block.text.contains("한국어"));
@@ -1328,6 +1397,8 @@ mod tests {
             confidence: 0.0,
             direction: TextDirection::Horizontal,
             font_size: None,
+            role: None,
+            order: None,
         };
         assert!(block.text.is_empty());
     }
@@ -1387,6 +1458,8 @@ mod tests {
             confidence: 0.5,
             direction: TextDirection::Horizontal,
             font_size: Some(4.0),
+            role: None,
+            order: None,
         };
         assert_eq!(small_font.font_size, Some(4.0));
 
@@ -1397,6 +1470,8 @@ mod tests {
             confidence: 0.9,
             direction: TextDirection::Horizontal,
             font_size: Some(144.0),
+            role: None,
+            order: None,
         };
         assert_eq!(large_font.font_size, Some(144.0));
     }
@@ -1468,6 +1543,8 @@ mod tests {
                 confidence: conf,
                 direction: TextDirection::Horizontal,
                 font_size: None,
+                role: None,
+                order: None,
             };
             assert!(block.confidence >= 0.0 && block.confidence <= 1.0);
         }
@@ -1684,6 +1761,8 @@ mod tests {
                 confidence: 0.95,
                 direction: TextDirection::Vertical,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             }],
             confidence: 0.95,
             processing_time: Duration::from_millis(200),
@@ -1762,6 +1841,8 @@ mod tests {
             confidence: 0.5,
             direction: TextDirection::Horizontal,
             font_size: None,
+            role: None,
+            order: None,
         };
         assert_eq!(block.bbox.2, 0); // width
         assert_eq!(block.bbox.3, 0); // height
@@ -1775,6 +1856,8 @@ mod tests {
             confidence: 0.9,
             direction: TextDirection::Horizontal,
             font_size: Some(24.0),
+            role: None,
+            order: None,
         };
         assert_eq!(block.bbox.0, 10000); // x
         assert_eq!(block.bbox.2, 5000); // width
@@ -1788,6 +1871,8 @@ mod tests {
             confidence: 0.5,
             direction: TextDirection::Horizontal,
             font_size: None,
+            role: None,
+            order: None,
         };
         assert!(block.text.is_empty());
     }
@@ -1800,6 +1885,8 @@ mod tests {
             confidence: 0.99,
             direction: TextDirection::Vertical,
             font_size: Some(16.0),
+            role: None,
+            order: None,
         };
         assert!(block.text.contains("日本語"));
         assert!(block.text.contains("🎉"));
@@ -1837,6 +1924,8 @@ mod tests {
             confidence: 0.8,
             direction: TextDirection::Horizontal,
             font_size: None,
+            role: None,
+            order: None,
         };
         assert!(block.font_size.is_none());
     }
@@ -1849,6 +1938,8 @@ mod tests {
             confidence: 0.8,
             direction: TextDirection::Horizontal,
             font_size: Some(0.0),
+            role: None,
+            order: None,
         };
         assert_eq!(block.font_size, Some(0.0));
     }

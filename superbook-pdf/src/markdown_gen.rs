@@ -446,6 +446,7 @@ impl MarkdownGenerator {
         median_height: f32,
     ) -> String {
         let mut result = String::new();
+        let roles_available = blocks.iter().any(|b| b.role.is_some());
 
         for (i, block) in blocks.iter().enumerate() {
             // Check for paragraph gap
@@ -462,7 +463,7 @@ impl MarkdownGenerator {
             }
 
             // Determine if this is a heading
-            let heading = median_size.and_then(|ms| Self::heading_level(block, ms));
+            let heading = Self::heading_level(block, median_size, roles_available);
 
             match heading {
                 Some(2) => {
@@ -492,11 +493,15 @@ impl MarkdownGenerator {
         result
     }
 
-    /// Filter out low-confidence and noisy OCR blocks, clean remaining text
+    /// Filter out low-confidence and noisy OCR blocks, clean remaining text.
+    /// Blocks the layout analyzer marked as page furniture (running headers,
+    /// footers/ノンブル) are dropped entirely (issue #61) — they are neither
+    /// body text nor chapter headings.
     fn filter_low_confidence(blocks: &[TextBlock]) -> Vec<TextBlock> {
         blocks
             .iter()
             .filter(|b| b.confidence >= MIN_CONFIDENCE)
+            .filter(|b| !b.is_page_furniture())
             .filter(|b| !Self::is_noise_text(&b.text))
             .map(|b| {
                 let mut cleaned = b.clone();
@@ -653,14 +658,40 @@ impl MarkdownGenerator {
         }
     }
 
+    /// True when any block on the page carries a layout role from the
+    /// analyzer. In that case heading decisions must come from roles only.
+    fn layout_roles_available(blocks: &[TextBlock]) -> bool {
+        blocks.iter().any(|b| b.role.is_some())
+    }
+
     /// Determine the heading level for a text block.
     /// Returns None for body text, Some(2) for main headings, Some(3) for sub-headings.
     ///
-    /// Font size alone is not enough (issue #54: body lines with inflated OCR
-    /// font sizes were promoted to chapter headings); candidates must also pass
-    /// a text-shape sanity check and an OCR-confidence floor.
-    fn heading_level(block: &TextBlock, median_size: f32) -> Option<u8> {
+    /// When the layout analyzer provided roles (issue #61), ONLY blocks it
+    /// marked as section headings become headings — the font-size heuristic
+    /// is disabled entirely because false negatives are cheaper downstream
+    /// than promoted body fragments. A complete fix would additionally
+    /// detect the TOC page and anchor chapter titles to their body
+    /// positions, independent of per-book heading styles.
+    ///
+    /// Without roles, the heuristic fallback applies: font size alone is not
+    /// enough (issue #54 — body lines with inflated OCR font sizes were
+    /// promoted to chapter headings), so candidates must also pass a
+    /// text-shape sanity check and an OCR-confidence floor.
+    fn heading_level(
+        block: &TextBlock,
+        median_size: Option<f32>,
+        roles_available: bool,
+    ) -> Option<u8> {
+        if roles_available {
+            if block.is_section_heading() && is_heading_candidate_text(&block.text) {
+                return Some(2); // layout roles carry no level → always ##
+            }
+            return None;
+        }
+
         let font_size = block.font_size?;
+        let median_size = median_size?;
         if block.confidence < HEADING_MIN_CONFIDENCE || !is_heading_candidate_text(&block.text) {
             return None;
         }
@@ -722,6 +753,7 @@ impl MarkdownGenerator {
         // Calculate metrics for heading detection and paragraph gaps
         let median_size = Self::median_font_size(&sorted);
         let median_height = Self::median_line_height(&sorted);
+        let roles_available = Self::layout_roles_available(&sorted);
 
         let mut result = String::new();
 
@@ -740,7 +772,7 @@ impl MarkdownGenerator {
             }
 
             // Determine if this is a heading
-            let heading = median_size.and_then(|ms| Self::heading_level(block, ms));
+            let heading = Self::heading_level(block, median_size, roles_available);
 
             match heading {
                 Some(2) => {
@@ -964,6 +996,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Vertical,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "右列".into(),
@@ -971,6 +1005,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Vertical,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
         ];
 
@@ -988,6 +1024,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "上行".into(),
@@ -995,6 +1033,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
         ];
 
@@ -1179,6 +1219,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "二番目の段落".into(),
@@ -1186,6 +1228,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
         ];
 
@@ -1223,6 +1267,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "文章の後".into(),
@@ -1230,6 +1276,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
         ];
 
@@ -1356,6 +1404,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "左".into(),
@@ -1363,6 +1413,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
         ];
 
@@ -1381,6 +1433,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Mixed,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "上".into(),
@@ -1388,6 +1442,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Mixed,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
         ];
 
@@ -1585,6 +1641,8 @@ mod tests {
             confidence: 0.95,
             direction: TextDirection::Horizontal,
             font_size: Some(12.0),
+            role: None,
+            order: None,
         }];
         let sorted = MarkdownGenerator::sort_text_blocks(&blocks, &TextDirection::Horizontal);
         assert_eq!(sorted.len(), 1);
@@ -1602,6 +1660,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "低信頼ノイズ".into(),
@@ -1609,6 +1669,8 @@ mod tests {
                 confidence: 0.1,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "中信頼".into(),
@@ -1616,6 +1678,8 @@ mod tests {
                 confidence: 0.5,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "境界値".into(),
@@ -1623,6 +1687,8 @@ mod tests {
                 confidence: 0.3,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
         ];
 
@@ -1645,6 +1711,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(24.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "本文テキスト".into(),
@@ -1652,6 +1720,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "もう一つの本文".into(),
@@ -1659,6 +1729,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "さらに本文".into(),
@@ -1666,6 +1738,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "小見出し".into(),
@@ -1673,6 +1747,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(16.0), // 16/12 = 1.33 >= 1.2 → sub-heading
+                role: None,
+                order: None,
             },
         ];
 
@@ -1728,26 +1804,108 @@ mod tests {
             confidence,
             direction: TextDirection::Horizontal,
             font_size: Some(24.0), // 2.0x median → would be a heading by size
+            role: None,
+            order: None,
         };
 
         // Large font + valid title + good confidence → heading
         assert_eq!(
-            MarkdownGenerator::heading_level(&make("第1章 出発", 0.9), 12.0),
+            MarkdownGenerator::heading_level(&make("第1章 出発", 0.9), Some(12.0), false),
             Some(2)
         );
         // Same font but sentence fragment → rejected
         assert_eq!(
             MarkdownGenerator::heading_level(
                 &make("専門性に感服したからだ」そうである。", 0.9),
-                12.0
+                Some(12.0),
+                false
             ),
             None
         );
         // Same font but low OCR confidence → rejected
         assert_eq!(
-            MarkdownGenerator::heading_level(&make("第1章 出発", 0.4), 12.0),
+            MarkdownGenerator::heading_level(&make("第1章 出発", 0.4), Some(12.0), false),
             None
         );
+    }
+
+    // ============ Issue #61: layout-role based heading detection ============
+
+    fn role_block(text: &str, role: Option<&str>, font_size: Option<f32>) -> TextBlock {
+        TextBlock {
+            text: text.into(),
+            bbox: (0, 0, 400, 40),
+            confidence: 0.9,
+            direction: TextDirection::Horizontal,
+            font_size,
+            role: role.map(|r| r.to_string()),
+            order: None,
+        }
+    }
+
+    #[test]
+    fn test_role_marked_heading_is_promoted() {
+        let blocks = vec![
+            role_block("第1章 出発", Some("section_headings"), None),
+            role_block("本文テキストです", Some("paragraphs"), None),
+        ];
+        let text = MarkdownGenerator::build_structured_text(&blocks, &TextDirection::Horizontal);
+        assert!(text.contains("## 第1章 出発"), "got: {}", text);
+        assert!(!text.contains("## 本文テキストです"));
+    }
+
+    #[test]
+    fn test_font_heuristic_disabled_when_roles_present() {
+        // A paragraph-role block with a huge font must NOT become a heading
+        // when the layout analyzer provided roles (false negatives are
+        // preferable to promoted body fragments)
+        let blocks = vec![
+            role_block("大きなフォントの本文", Some("paragraphs"), Some(48.0)),
+            role_block("本文テキスト1", Some("paragraphs"), Some(12.0)),
+            role_block("本文テキスト2", Some("paragraphs"), Some(12.0)),
+        ];
+        let text = MarkdownGenerator::build_structured_text(&blocks, &TextDirection::Horizontal);
+        assert!(!text.contains("## "), "got: {}", text);
+    }
+
+    #[test]
+    fn test_role_heading_still_passes_sanity_check() {
+        // Even role-marked headings must not be sentence fragments
+        let blocks = vec![role_block(
+            "専門性に感服したからだ」そうである。",
+            Some("section_headings"),
+            None,
+        )];
+        let text = MarkdownGenerator::build_structured_text(&blocks, &TextDirection::Horizontal);
+        assert!(!text.contains("## "), "got: {}", text);
+    }
+
+    #[test]
+    fn test_page_furniture_roles_are_dropped() {
+        // Running headers (柱) and footers must not appear in the body at all
+        let blocks = vec![
+            role_block("第1部", Some("page_header"), None),
+            role_block("本文テキストです", Some("paragraphs"), None),
+            role_block("123", Some("page_footer"), None),
+        ];
+        let text = MarkdownGenerator::build_structured_text(&blocks, &TextDirection::Horizontal);
+        assert!(!text.contains("第1部"), "got: {}", text);
+        assert!(text.contains("本文テキストです"));
+        assert!(!text.contains("123"));
+    }
+
+    #[test]
+    fn test_font_heuristic_still_works_without_roles() {
+        // Books processed with an older bridge (no role info) keep the
+        // font-size heuristic fallback
+        let blocks = vec![
+            role_block("第1章 出発", None, Some(24.0)),
+            role_block("本文テキスト1", None, Some(12.0)),
+            role_block("本文テキスト2", None, Some(12.0)),
+            role_block("本文テキスト3", None, Some(12.0)),
+        ];
+        let text = MarkdownGenerator::build_structured_text(&blocks, &TextDirection::Horizontal);
+        assert!(text.contains("## 第1章 出発"), "got: {}", text);
     }
 
     #[test]
@@ -1759,6 +1917,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(24.0), // large font, but a body fragment
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "本文テキスト".into(),
@@ -1766,6 +1926,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "もう一つの本文".into(),
@@ -1773,6 +1935,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
         ];
 
@@ -1794,6 +1958,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "段落1の続き".into(),
@@ -1801,6 +1967,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "段落2（大きなギャップの後）".into(),
@@ -1808,6 +1976,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
         ];
 
@@ -1829,6 +1999,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "ゴミOCRノイズ##@!".into(),
@@ -1836,6 +2008,8 @@ mod tests {
                 confidence: 0.05,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
         ];
 
@@ -1874,6 +2048,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(10.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "b".into(),
@@ -1881,6 +2057,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "c".into(),
@@ -1888,6 +2066,8 @@ mod tests {
                 confidence: 0.9,
                 direction: TextDirection::Horizontal,
                 font_size: Some(24.0),
+                role: None,
+                order: None,
             },
         ];
 
@@ -1903,6 +2083,8 @@ mod tests {
             confidence: 0.9,
             direction: TextDirection::Horizontal,
             font_size: None,
+            role: None,
+            order: None,
         }];
 
         assert_eq!(
@@ -1921,6 +2103,8 @@ mod tests {
                 confidence: 0.1,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
             TextBlock {
                 text: "noise2".into(),
@@ -1928,6 +2112,8 @@ mod tests {
                 confidence: 0.2,
                 direction: TextDirection::Horizontal,
                 font_size: Some(12.0),
+                role: None,
+                order: None,
             },
         ];
 

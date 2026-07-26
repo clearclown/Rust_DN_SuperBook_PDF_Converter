@@ -136,12 +136,22 @@ def process_image(
             
             # Get direction
             direction = getattr(para, "direction", "horizontal")
-            
+
+            # Layout role from DocumentAnalyzer (issue #61): e.g.
+            # "section_headings", "page_header", "page_footer". The role
+            # vocabulary depends on the YomiToku version, so pass it through
+            # verbatim and let the Rust side match defensively.
+            role = getattr(para, "role", None)
+            # Reading order assigned by the layout analyzer (if present)
+            order = getattr(para, "order", None)
+
             block = {
                 "text": text,
                 "bbox": box_list,
                 "confidence": 1.0,  # YomiToku doesn't provide per-block confidence
                 "direction": direction,
+                "role": role,
+                "order": order,
             }
             text_blocks.append(block)
             full_text.append(text)
@@ -157,12 +167,14 @@ def process_image(
                     
                 text = word.content if hasattr(word, "content") else str(word)
                 direction = getattr(word, "direction", "horizontal")
-                
+
                 block = {
                     "text": text,
                     "bbox": box_list,
                     "confidence": 1.0,
                     "direction": direction,
+                    "role": None,  # words carry no layout role
+                    "order": None,
                 }
                 text_blocks.append(block)
                 full_text.append(text)
