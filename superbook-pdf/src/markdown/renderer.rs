@@ -78,7 +78,9 @@ impl MarkdownRenderer {
 
         for (i, page) in pages.iter().enumerate() {
             if i > 0 && self.options.include_page_breaks {
-                output.push_str("\n---\n\n");
+                // Issue #59: `---` directly after a text line is a CommonMark
+                // Setext H2; an HTML comment cannot promote the previous line.
+                output.push_str("\n<!-- page break -->\n\n");
             }
 
             if self.options.include_page_numbers {
@@ -449,7 +451,9 @@ mod tests {
 
         assert!(output.contains("<!-- Page 1 -->"));
         assert!(output.contains("<!-- Page 2 -->"));
-        assert!(output.contains("---"));
+        // Issue #59: page break must be a Setext-safe HTML comment, not ---
+        assert!(output.contains("<!-- page break -->"));
+        assert!(!output.contains("---"));
     }
 
     #[test]

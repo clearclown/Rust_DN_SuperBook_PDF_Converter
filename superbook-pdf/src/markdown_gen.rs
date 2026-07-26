@@ -192,7 +192,13 @@ impl MarkdownGenerator {
                     writeln!(md).ok();
                 }
                 ContentElement::PageBreak => {
-                    writeln!(md, "---").ok();
+                    // Issue #59: `---` after a text line is a CommonMark
+                    // Setext H2, which turned body lines into headings
+                    // downstream. An HTML comment can never promote the
+                    // preceding line. A complete fix would make the break
+                    // style configurable (e.g. --page-break-style); the
+                    // comment form is the safe default for all parsers.
+                    writeln!(md, "<!-- page {} -->", page_content.page_index + 1).ok();
                     writeln!(md).ok();
                 }
             }
@@ -357,11 +363,20 @@ impl MarkdownGenerator {
         writeln!(merged, "# {}", title).ok();
         writeln!(merged).ok();
 
-        // Concatenate page files in order
+        // Concatenate page files in order. A blank line between pages keeps
+        // the last line of one page and the first line of the next from
+        // fusing into a single paragraph (and from forming Setext headings,
+        // issue #59).
         for i in 0..total_pages {
             let page_path = self.pages_dir.join(format!("page_{:03}.md", i + 1));
             if page_path.exists() {
                 let content = std::fs::read_to_string(&page_path)?;
+                if !merged.is_empty() && !merged.ends_with("\n\n") {
+                    if !merged.ends_with('\n') {
+                        merged.push('\n');
+                    }
+                    merged.push('\n');
+                }
                 merged.push_str(&content);
             }
         }
@@ -786,6 +801,23 @@ impl MarkdownGenerator {
                 continue;
             }
 
+            // === Preserve page-break comments with blank lines around them ===
+            // (issue #59) HTML comments must stay on their own block so no
+            // parser can associate them with adjacent text lines.
+            if trimmed.starts_with("<!--") {
+                if !result.is_empty() && !result.ends_with("\n\n") {
+                    if !result.ends_with('\n') {
+                        result.push('\n');
+                    }
+                    result.push('\n');
+                }
+                result.push_str(trimmed);
+                result.push_str("\n\n");
+                blank_count = 1;
+                prev_line = None;
+                continue;
+            }
+
             // === Transform: Convert +heading to ## heading ===
             let line_to_write = if let Some(heading_text) = trimmed.strip_prefix('+') {
                 let heading_text = heading_text.trim();
@@ -989,7 +1021,49 @@ mod tests {
 
         let md = gen.generate_page_markdown(&content).unwrap();
         assert!(md.contains("テスト段落です。"));
-        assert!(md.contains("---"));
+        assert!(md.contains("<!-- page 1 -->"));
+        // Issue #59: a `---` after a text line is a CommonMark Setext H2
+        assert!(
+            !md.contains("---"),
+            "page break must not be ---, got: {}",
+            md
+        );
+    }
+
+    #[test]
+    fn test_page_break_never_forms_setext_heading() {
+        // Issue #59 regression: the separator line must never appear
+        // directly below a text line (which CommonMark parses as Setext H2).
+        let tmpdir = tempfile::tempdir().unwrap();
+        let gen = MarkdownGenerator::new(tmpdir.path()).unwrap();
+
+        let content = PageContent {
+            page_index: 4,
+            elements: vec![
+                ContentElement::Text {
+                    content: "本文の最後の行です".into(),
+                    direction: TextDirection::Horizontal,
+                },
+                ContentElement::PageBreak,
+            ],
+        };
+
+        let md = gen.generate_page_markdown(&content).unwrap();
+        assert!(md.contains("<!-- page 5 -->"));
+        for pair in md.lines().collect::<Vec<_>>().windows(2) {
+            let setext = !pair[0].trim().is_empty()
+                && !pair[0].starts_with('#')
+                && (pair[1].trim_start().starts_with("---")
+                    || pair[1].trim_start().starts_with("==="));
+            assert!(!setext, "Setext-forming pair found: {:?}", pair);
+        }
+        // The break comment must sit on its own block (blank line before it)
+        let lines: Vec<&str> = md.lines().collect();
+        let idx = lines
+            .iter()
+            .position(|l| l.starts_with("<!-- page"))
+            .unwrap();
+        assert!(idx == 0 || lines[idx - 1].trim().is_empty());
     }
 
     #[test]
@@ -1019,9 +1093,9 @@ mod tests {
         let tmpdir = tempfile::tempdir().unwrap();
         let gen = MarkdownGenerator::new(tmpdir.path()).unwrap();
 
-        gen.save_page_markdown(0, "Page 1 content\n\n---\n\n")
+        gen.save_page_markdown(0, "Page 1 content\n\n<!-- page 1 -->\n\n")
             .unwrap();
-        gen.save_page_markdown(1, "Page 2 content\n\n---\n\n")
+        gen.save_page_markdown(1, "Page 2 content\n\n<!-- page 2 -->\n\n")
             .unwrap();
 
         let merged_path = gen.merge_pages("テストブック", 2).unwrap();
@@ -1340,7 +1414,7 @@ mod tests {
 
         let md = gen.generate_page_markdown(&content).unwrap();
         assert!(md.contains("![](images/page_001_full.png)"));
-        assert!(md.contains("---"));
+        assert!(md.contains("<!-- page 1 -->"));
     }
 
     #[test]
