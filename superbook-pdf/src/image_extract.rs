@@ -522,13 +522,149 @@ impl LopdfExtractor {
             reason: format!("Failed to load PDF: {}", e),
         })?;
 
+        // Issue #58: walk the page tree so page_index reflects reading order.
+        // Object IDs are unrelated to page order, so scanning doc.objects
+        // scrambled pages whenever images were registered out of page order.
+        let mut results = Self::extract_by_page_tree(&doc, output_dir);
+
+        if results.is_empty() {
+            // Fallback for PDFs whose page tree carries no image XObjects
+            // (e.g. images referenced only through Form XObjects, or broken
+            // /Resources). This legacy scan has NO reliable page ordering.
+            // A complete fix would also resolve Form XObject content streams
+            // and inline images; for scanned books the page-tree walk above
+            // covers the practical cases.
+            results = Self::extract_by_object_scan(&doc, output_dir);
+        }
+
+        if results.is_empty() {
+            return Err(ExtractError::ExtractionFailed {
+                page: 0,
+                reason: "No extractable images found. This PDF may require ImageMagick (install with: sudo apt install imagemagick).".to_string(),
+            });
+        }
+
+        // Sort by page index for consistent ordering
+        results.sort_by_key(|r| r.page_index);
+
+        Ok(results)
+    }
+
+    /// Extract one image per page by walking the page tree (issue #58).
+    ///
+    /// For each page (in page-tree order) the largest-area image XObject in
+    /// the page's resources is taken as the page scan and assigned
+    /// `page_index = page_number - 1`. Pages without an image XObject are
+    /// skipped, matching the previous behavior of only emitting image-bearing
+    /// pages (a complete fix would insert blank-page placeholders so that
+    /// vec position always equals the physical page number).
+    fn extract_by_page_tree(doc: &lopdf::Document, output_dir: &Path) -> Vec<ExtractedPage> {
+        let mut results = Vec::new();
+
+        for (page_num, page_id) in doc.get_pages() {
+            let mut best: Option<(lopdf::ObjectId, u64)> = None;
+
+            for obj_id in Self::page_image_xobjects(doc, page_id) {
+                let Ok(stream) = doc.get_object(obj_id).and_then(|o| o.as_stream()) else {
+                    continue;
+                };
+                let is_image = stream
+                    .dict
+                    .get(b"Subtype")
+                    .ok()
+                    .and_then(|s| s.as_name_str().ok())
+                    == Some("Image");
+                if !is_image {
+                    continue;
+                }
+                let width = stream
+                    .dict
+                    .get(b"Width")
+                    .ok()
+                    .and_then(|w| w.as_i64().ok())
+                    .unwrap_or(0);
+                let height = stream
+                    .dict
+                    .get(b"Height")
+                    .ok()
+                    .and_then(|h| h.as_i64().ok())
+                    .unwrap_or(0);
+                let area = (width.max(0) as u64) * (height.max(0) as u64);
+                if best.is_none_or(|(_, best_area)| area > best_area) {
+                    best = Some((obj_id, area));
+                }
+            }
+
+            if let Some((obj_id, _)) = best {
+                if let Ok(stream) = doc.get_object(obj_id).and_then(|o| o.as_stream()) {
+                    if let Ok(extracted) = Self::extract_image_stream(
+                        stream,
+                        (page_num - 1) as usize,
+                        &obj_id,
+                        output_dir,
+                    ) {
+                        results.push(extracted);
+                    }
+                }
+            }
+        }
+
+        results
+    }
+
+    /// Collect the ObjectIds of all XObjects reachable from a page's
+    /// resources, including inherited resource dictionaries.
+    fn page_image_xobjects(
+        doc: &lopdf::Document,
+        page_id: lopdf::ObjectId,
+    ) -> Vec<lopdf::ObjectId> {
+        let mut ids = Vec::new();
+        let Ok((direct, resource_ids)) = doc.get_page_resources(page_id) else {
+            return ids;
+        };
+
+        let mut dicts: Vec<&lopdf::Dictionary> = Vec::new();
+        if let Some(dict) = direct {
+            dicts.push(dict);
+        }
+        for rid in resource_ids {
+            if let Ok(dict) = doc.get_dictionary(rid) {
+                dicts.push(dict);
+            }
+        }
+
+        for dict in dicts {
+            let Ok(xobjects) = dict.get(b"XObject") else {
+                continue;
+            };
+            let xobj_dict = match xobjects {
+                lopdf::Object::Dictionary(d) => Some(d),
+                lopdf::Object::Reference(r) => doc.get_dictionary(*r).ok(),
+                _ => None,
+            };
+            if let Some(xobj_dict) = xobj_dict {
+                for (_name, value) in xobj_dict.iter() {
+                    if let Ok(r) = value.as_reference() {
+                        if !ids.contains(&r) {
+                            ids.push(r);
+                        }
+                    }
+                }
+            }
+        }
+
+        ids
+    }
+
+    /// Legacy extraction: scan all PDF objects for image streams.
+    /// Ordering follows object IDs, NOT page order — only used as a fallback
+    /// when the page tree yields no images (see extract_all).
+    fn extract_by_object_scan(doc: &lopdf::Document, output_dir: &Path) -> Vec<ExtractedPage> {
         let mut results = Vec::new();
         let mut image_count = 0;
 
-        // Iterate through all objects to find images
         for (obj_id, object) in doc.objects.iter() {
             if let Ok(stream) = object.as_stream() {
-                // Check if it's an Image XObject
                 if let Ok(subtype) = stream.dict.get(b"Subtype") {
                     if let Ok(subtype_name) = subtype.as_name_str() {
                         if subtype_name == "Image" {
@@ -544,17 +680,7 @@ impl LopdfExtractor {
             }
         }
 
-        if results.is_empty() {
-            return Err(ExtractError::ExtractionFailed {
-                page: 0,
-                reason: "No extractable images found. This PDF may require ImageMagick (install with: sudo apt install imagemagick).".to_string(),
-            });
-        }
-
-        // Sort by page index for consistent ordering
-        results.sort_by_key(|r| r.page_index);
-
-        Ok(results)
+        results
     }
 
     /// Extract a single image stream to file
@@ -2296,5 +2422,201 @@ mod tests {
             "-alpha should not be present when no background. Args: {:?}",
             args
         );
+    }
+
+    // ============ Issue #58: page-tree extraction order ============
+
+    fn make_test_image_stream(width: i64, height: i64) -> lopdf::Stream {
+        use lopdf::{dictionary, Object};
+        lopdf::Stream::new(
+            dictionary! {
+                "Type" => Object::Name(b"XObject".to_vec()),
+                "Subtype" => Object::Name(b"Image".to_vec()),
+                "Width" => Object::Integer(width),
+                "Height" => Object::Integer(height),
+                "ColorSpace" => Object::Name(b"DeviceRGB".to_vec()),
+                "BitsPerComponent" => Object::Integer(8),
+                "Filter" => Object::Name(b"DCTDecode".to_vec()),
+            },
+            // DCTDecode streams are written verbatim, so dummy bytes suffice
+            vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10],
+        )
+    }
+
+    /// Build a PDF whose image objects are registered in REVERSE page order,
+    /// so object-id order disagrees with page-tree order (the #58 scenario).
+    /// Pages are identified by image width: page 1 → 100, page 2 → 200, page 3 → 300.
+    fn build_reverse_registered_pdf(path: &std::path::Path) {
+        use lopdf::{dictionary, Document, Object};
+
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+
+        // Reverse registration: page 3's image gets the SMALLEST object id
+        let img3 = doc.add_object(Object::Stream(make_test_image_stream(300, 400)));
+        let img2 = doc.add_object(Object::Stream(make_test_image_stream(200, 400)));
+        let img1 = doc.add_object(Object::Stream(make_test_image_stream(100, 400)));
+
+        let mut kids = Vec::new();
+        for img_ref in [img1, img2, img3] {
+            let page_id = doc.add_object(dictionary! {
+                "Type" => Object::Name(b"Page".to_vec()),
+                "Parent" => Object::Reference(pages_id),
+                "MediaBox" => Object::Array(vec![
+                    Object::Integer(0),
+                    Object::Integer(0),
+                    Object::Integer(612),
+                    Object::Integer(792),
+                ]),
+                "Resources" => Object::Dictionary(dictionary! {
+                    "XObject" => Object::Dictionary(dictionary! {
+                        "Im0" => Object::Reference(img_ref),
+                    }),
+                }),
+            });
+            kids.push(Object::Reference(page_id));
+        }
+
+        let count = kids.len() as i64;
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => Object::Name(b"Pages".to_vec()),
+                "Kids" => Object::Array(kids),
+                "Count" => Object::Integer(count),
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => Object::Name(b"Catalog".to_vec()),
+            "Pages" => Object::Reference(pages_id),
+        });
+        doc.trailer.set("Root", catalog_id);
+        doc.save(path).unwrap();
+    }
+
+    #[test]
+    fn test_lopdf_extraction_follows_page_tree_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pdf_path = tmp.path().join("reverse.pdf");
+        build_reverse_registered_pdf(&pdf_path);
+
+        let out_dir = tmp.path().join("out");
+        let results =
+            LopdfExtractor::extract_all(&pdf_path, &out_dir, &ExtractOptions::default()).unwrap();
+
+        assert_eq!(results.len(), 3);
+        // Reading order must follow the page tree, not object-id order
+        assert_eq!(
+            results.iter().map(|r| r.width).collect::<Vec<_>>(),
+            vec![100, 200, 300],
+            "pages must come back in page-tree order"
+        );
+        assert_eq!(
+            results.iter().map(|r| r.page_index).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+    }
+
+    #[test]
+    fn test_lopdf_extraction_picks_largest_image_per_page() {
+        use lopdf::{dictionary, Document, Object};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let pdf_path = tmp.path().join("multi_image.pdf");
+
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        // One page containing a small decoration image and the large page scan
+        let small = doc.add_object(Object::Stream(make_test_image_stream(50, 50)));
+        let scan = doc.add_object(Object::Stream(make_test_image_stream(1000, 1400)));
+        let page_id = doc.add_object(dictionary! {
+            "Type" => Object::Name(b"Page".to_vec()),
+            "Parent" => Object::Reference(pages_id),
+            "MediaBox" => Object::Array(vec![
+                Object::Integer(0),
+                Object::Integer(0),
+                Object::Integer(612),
+                Object::Integer(792),
+            ]),
+            "Resources" => Object::Dictionary(dictionary! {
+                "XObject" => Object::Dictionary(dictionary! {
+                    "Im0" => Object::Reference(small),
+                    "Im1" => Object::Reference(scan),
+                }),
+            }),
+        });
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => Object::Name(b"Pages".to_vec()),
+                "Kids" => Object::Array(vec![Object::Reference(page_id)]),
+                "Count" => Object::Integer(1),
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => Object::Name(b"Catalog".to_vec()),
+            "Pages" => Object::Reference(pages_id),
+        });
+        doc.trailer.set("Root", catalog_id);
+        doc.save(&pdf_path).unwrap();
+
+        let out_dir = tmp.path().join("out");
+        let results =
+            LopdfExtractor::extract_all(&pdf_path, &out_dir, &ExtractOptions::default()).unwrap();
+
+        assert_eq!(results.len(), 1, "one entry per page, not per image");
+        assert_eq!(
+            results[0].width, 1000,
+            "largest-area image is the page scan"
+        );
+    }
+
+    #[test]
+    fn test_lopdf_extraction_object_scan_fallback() {
+        use lopdf::{dictionary, Document, Object};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let pdf_path = tmp.path().join("orphan.pdf");
+
+        // Page tree with NO XObject resources; the image exists only as an
+        // orphan object → page-tree walk finds nothing, fallback must fire.
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let _orphan = doc.add_object(Object::Stream(make_test_image_stream(640, 480)));
+        let page_id = doc.add_object(dictionary! {
+            "Type" => Object::Name(b"Page".to_vec()),
+            "Parent" => Object::Reference(pages_id),
+            "MediaBox" => Object::Array(vec![
+                Object::Integer(0),
+                Object::Integer(0),
+                Object::Integer(612),
+                Object::Integer(792),
+            ]),
+        });
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => Object::Name(b"Pages".to_vec()),
+                "Kids" => Object::Array(vec![Object::Reference(page_id)]),
+                "Count" => Object::Integer(1),
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => Object::Name(b"Catalog".to_vec()),
+            "Pages" => Object::Reference(pages_id),
+        });
+        doc.trailer.set("Root", catalog_id);
+        doc.save(&pdf_path).unwrap();
+
+        let out_dir = tmp.path().join("out");
+        let results =
+            LopdfExtractor::extract_all(&pdf_path, &out_dir, &ExtractOptions::default()).unwrap();
+
+        assert_eq!(
+            results.len(),
+            1,
+            "legacy object scan must still find orphan images"
+        );
+        assert_eq!(results[0].width, 640);
     }
 }
